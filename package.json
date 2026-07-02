@@ -1,0 +1,51 @@
+{
+  "name": "desktop-todo-widget",
+  "version": "0.1.1",
+  "description": "A Windows desktop todo widget with global quick add and daily rollover.",
+  "private": true,
+  "type": "module",
+  "main": "./out/main/main.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "tsc --noEmit && electron-vite build",
+    "preview": "electron-vite preview",
+    "dist": "npm run build && electron-builder",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@electron-toolkit/preload": "latest",
+    "@electron-toolkit/utils": "latest",
+    "clsx": "latest",
+    "date-fns": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@vitejs/plugin-react": "5.1.4",
+    "electron": "latest",
+    "electron-builder": "latest",
+    "electron-vite": "5.0.0",
+    "typescript": "latest",
+    "vite": "7.3.6",
+    "vitest": "latest"
+  },
+  "build": {
+    "appId": "com.local.desktop-todo-widget",
+    "productName": "Desktop Todo Widget",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    }
+  }
+}
