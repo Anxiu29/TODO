@@ -18,7 +18,8 @@ const database: TodoDatabase = {
       title: "未完成事项",
       createdAt: "2026-07-01T08:00:00.000Z",
       scheduledDate: "2026-07-01",
-      status: "active"
+      status: "active",
+      rating: 2
     },
     {
       id: "completed-1",
@@ -26,7 +27,8 @@ const database: TodoDatabase = {
       createdAt: "2026-07-01T09:00:00.000Z",
       scheduledDate: "2026-07-01",
       completedAt: "2026-07-01T10:00:00.000Z",
-      status: "completed"
+      status: "completed",
+      rating: 1
     }
   ]
 };
@@ -56,5 +58,33 @@ describe("todo daily refresh", () => {
       date: "2026-07-01",
       completedCount: 1
     });
+  });
+
+  it("sorts active todos by rating descending", () => {
+    const ratedDatabase: TodoDatabase = {
+      ...database,
+      todos: [
+        {
+          id: "low",
+          title: "低优先级",
+          createdAt: "2026-07-01T08:00:00.000Z",
+          scheduledDate: "2026-07-01",
+          status: "active",
+          rating: 1
+        },
+        {
+          id: "high",
+          title: "高优先级",
+          createdAt: "2026-07-01T09:00:00.000Z",
+          scheduledDate: "2026-07-01",
+          status: "active",
+          rating: 5
+        }
+      ]
+    };
+
+    const snapshot = buildTodoSnapshot(ratedDatabase, "2026-07-01");
+
+    expect(snapshot.activeTodos.map((todo) => todo.id)).toEqual(["high", "low"]);
   });
 });

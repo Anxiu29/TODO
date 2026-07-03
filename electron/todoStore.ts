@@ -44,7 +44,8 @@ export class TodoStore {
       title,
       createdAt: timestamp,
       scheduledDate: todayKey(),
-      status: "active"
+      status: "active",
+      rating: 1
     });
     this.save();
     return this.getSnapshot();
@@ -76,6 +77,16 @@ export class TodoStore {
   deleteTodo(id: string): TodoSnapshot {
     this.database.todos = this.database.todos.filter((todo) => todo.id !== id);
     this.save();
+    return this.getSnapshot();
+  }
+
+  setTodoRating(id: string, rating: number): TodoSnapshot {
+    const todo = this.database.todos.find((item) => item.id === id);
+    if (todo) {
+      todo.rating = Math.min(5, Math.max(1, Math.round(rating)));
+      this.save();
+    }
+
     return this.getSnapshot();
   }
 
@@ -144,7 +155,12 @@ export class TodoStore {
           ...createEmptyDatabase().settings,
           ...parsed.settings
         },
-        todos: Array.isArray(parsed.todos) ? parsed.todos : []
+        todos: Array.isArray(parsed.todos)
+          ? parsed.todos.map((todo) => ({
+              ...todo,
+              rating: typeof todo.rating === "number" ? Math.min(5, Math.max(1, Math.round(todo.rating))) : 1
+            }))
+          : []
       };
     } catch {
       return createEmptyDatabase();

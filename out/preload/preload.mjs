@@ -5,6 +5,7 @@ const api = {
   completeTodo: (id) => ipcRenderer.invoke("todos:complete", id),
   reopenTodo: (id) => ipcRenderer.invoke("todos:reopen", id),
   deleteTodo: (id) => ipcRenderer.invoke("todos:delete", id),
+  setTodoRating: (id, rating) => ipcRenderer.invoke("todos:setRating", id, rating),
   getCalendar: (year, month) => ipcRenderer.invoke("todos:getCalendar", year, month),
   getSettings: () => ipcRenderer.invoke("settings:get"),
   setDesktopAttachEnabled: (enabled) => ipcRenderer.invoke("settings:setDesktopAttachEnabled", enabled),

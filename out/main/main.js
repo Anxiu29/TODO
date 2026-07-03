@@ -67,6 +67,13 @@ const attachWindowToDesktop = async (window) => {
     return false;
   }
 };
+const TODO_RATING_MIN = 1;
+const TODO_RATING_MAX = 5;
+const TODO_RATING_DEFAULT = 1;
+const normalizeTodoRating = (rating) => {
+  if (rating === void 0 || !Number.isFinite(rating)) return TODO_RATING_DEFAULT;
+  return Math.min(TODO_RATING_MAX, Math.max(TODO_RATING_MIN, Math.round(rating)));
+};
 const todayKey = (date = /* @__PURE__ */ new Date()) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -75,6 +82,8 @@ const todayKey = (date = /* @__PURE__ */ new Date()) => {
 };
 const sortTodos = (todos) => [...todos].sort((a, b) => {
   if (a.status !== b.status) return a.status === "active" ? -1 : 1;
+  const ratingDiff = normalizeTodoRating(b.rating) - normalizeTodoRating(a.rating);
+  if (ratingDiff !== 0) return ratingDiff;
   return a.createdAt.localeCompare(b.createdAt);
 });
 const buildTodoSnapshot = (database, date = todayKey()) => {
@@ -147,7 +156,8 @@ class TodoStore {
       title,
       createdAt: timestamp,
       scheduledDate: todayKey(),
-      status: "active"
+      status: "active",
+      rating: 1
     });
     this.save();
     return this.getSnapshot();
@@ -174,6 +184,14 @@ class TodoStore {
   deleteTodo(id) {
     this.database.todos = this.database.todos.filter((todo) => todo.id !== id);
     this.save();
+    return this.getSnapshot();
+  }
+  setTodoRating(id, rating) {
+    const todo = this.database.todos.find((item) => item.id === id);
+    if (todo) {
+      todo.rating = Math.min(5, Math.max(1, Math.round(rating)));
+      this.save();
+    }
     return this.getSnapshot();
   }
   getCalendar(year, month) {
@@ -231,7 +249,10 @@ class TodoStore {
           ...createEmptyDatabase().settings,
           ...parsed.settings
         },
-        todos: Array.isArray(parsed.todos) ? parsed.todos : []
+        todos: Array.isArray(parsed.todos) ? parsed.todos.map((todo) => ({
+          ...todo,
+          rating: typeof todo.rating === "number" ? Math.min(5, Math.max(1, Math.round(todo.rating))) : 1
+        })) : []
       };
     } catch {
       return createEmptyDatabase();
@@ -548,6 +569,11 @@ const registerIpc = () => {
   });
   ipcMain.handle("todos:delete", (_event, id) => {
     const snapshot = store.deleteTodo(id);
+    broadcastSnapshot();
+    return snapshot;
+  });
+  ipcMain.handle("todos:setRating", (_event, id, rating) => {
+    const snapshot = store.setTodoRating(id, rating);
     broadcastSnapshot();
     return snapshot;
   });

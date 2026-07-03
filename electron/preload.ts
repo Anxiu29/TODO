@@ -7,6 +7,7 @@ const api = {
   completeTodo: (id: string): Promise<TodoSnapshot> => ipcRenderer.invoke("todos:complete", id),
   reopenTodo: (id: string): Promise<TodoSnapshot> => ipcRenderer.invoke("todos:reopen", id),
   deleteTodo: (id: string): Promise<TodoSnapshot> => ipcRenderer.invoke("todos:delete", id),
+  setTodoRating: (id: string, rating: number): Promise<TodoSnapshot> => ipcRenderer.invoke("todos:setRating", id, rating),
   getCalendar: (year: number, month: number): Promise<TodoCalendarDay[]> =>
     ipcRenderer.invoke("todos:getCalendar", year, month),
   getSettings: (): Promise<AppSettings> => ipcRenderer.invoke("settings:get"),

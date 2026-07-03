@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type React from "react";
+import TodoRating from "./TodoRating";
 import type { AppSettings, TodoSnapshot } from "./types/todo";
 
 const emptySnapshot: TodoSnapshot = {
@@ -146,6 +147,12 @@ export default function App(): React.ReactElement {
                   type="button"
                   aria-label={`完成 ${todo.title}`}
                   onClick={() => window.todoApi.completeTodo(todo.id)}
+                />
+                <TodoRating
+                  rating={todo.rating}
+                  onChange={(rating) => {
+                    void window.todoApi.setTodoRating(todo.id, rating).then(setSnapshot);
+                  }}
                 />
                 <span>{todo.title}</span>
                 <button className="text-button danger" type="button" onClick={() => window.todoApi.deleteTodo(todo.id)}>

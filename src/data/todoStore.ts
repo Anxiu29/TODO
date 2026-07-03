@@ -1,4 +1,5 @@
 import type { Todo, TodoCalendarDay, TodoDatabase, TodoSnapshot } from "../types/todo";
+import { normalizeTodoRating } from "../types/todo";
 
 export const todayKey = (date = new Date()): string => {
   const year = date.getFullYear();
@@ -10,6 +11,8 @@ export const todayKey = (date = new Date()): string => {
 export const sortTodos = (todos: Todo[]): Todo[] =>
   [...todos].sort((a, b) => {
     if (a.status !== b.status) return a.status === "active" ? -1 : 1;
+    const ratingDiff = normalizeTodoRating(b.rating) - normalizeTodoRating(a.rating);
+    if (ratingDiff !== 0) return ratingDiff;
     return a.createdAt.localeCompare(b.createdAt);
   });
 

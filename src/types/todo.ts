@@ -1,3 +1,12 @@
+export const TODO_RATING_MIN = 1;
+export const TODO_RATING_MAX = 5;
+export const TODO_RATING_DEFAULT = 1;
+
+export const normalizeTodoRating = (rating?: number): number => {
+  if (rating === undefined || !Number.isFinite(rating)) return TODO_RATING_DEFAULT;
+  return Math.min(TODO_RATING_MAX, Math.max(TODO_RATING_MIN, Math.round(rating)));
+};
+
 export type TodoStatus = "active" | "completed";
 
 export type Todo = {
@@ -7,6 +16,7 @@ export type Todo = {
   scheduledDate: string;
   completedAt?: string;
   status: TodoStatus;
+  rating: number;
 };
 
 export type WindowBounds = {

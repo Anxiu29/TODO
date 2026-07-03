@@ -367,6 +367,11 @@ const registerIpc = (): void => {
     broadcastSnapshot();
     return snapshot;
   });
+  ipcMain.handle("todos:setRating", (_event, id: string, rating: number) => {
+    const snapshot = store.setTodoRating(id, rating);
+    broadcastSnapshot();
+    return snapshot;
+  });
   ipcMain.handle("todos:getCalendar", (_event, year: number, month: number) => store.getCalendar(year, month));
   ipcMain.handle("settings:get", () => store.getSettings());
   ipcMain.handle("settings:setDesktopAttachEnabled", async (_event, enabled: boolean) => {
