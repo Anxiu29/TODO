@@ -47,6 +47,19 @@ export const refreshDatabaseForDate = (database: TodoDatabase, date = todayKey()
   };
 };
 
+/** 更新待办标题；标题为空或未找到时返回原数据库。 */
+export const updateTodoTitle = (database: TodoDatabase, id: string, title: string): TodoDatabase => {
+  const trimmed = title.trim();
+  if (!trimmed) return database;
+
+  const index = database.todos.findIndex((todo) => todo.id === id);
+  if (index === -1) return database;
+
+  const todos = [...database.todos];
+  todos[index] = { ...todos[index], title: trimmed };
+  return { ...database, todos };
+};
+
 /** 按月聚合已完成待办，供日历视图展示每日完成数量与列表。 */
 export const getCalendarForMonth = (database: TodoDatabase, year: number, month: number): TodoCalendarDay[] => {
   const monthPrefix = `${year}-${String(month).padStart(2, "0")}`;

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AppSettings, ShortcutRegistrationResult, TodoCalendarDay, TodoDraft, TodoSnapshot } from "../src/types/todo";
+import type { AppSettings, ShortcutRegistrationResult, TodoCalendarDay, TodoDraft, TodoSnapshot, TodoUpdate } from "../src/types/todo";
 
 /** 渲染进程可调用的 API，经 contextBridge 安全暴露给 window.todoApi。 */
 const api = {
@@ -8,6 +8,8 @@ const api = {
   completeTodo: (id: string): Promise<TodoSnapshot> => ipcRenderer.invoke("todos:complete", id),
   reopenTodo: (id: string): Promise<TodoSnapshot> => ipcRenderer.invoke("todos:reopen", id),
   deleteTodo: (id: string): Promise<TodoSnapshot> => ipcRenderer.invoke("todos:delete", id),
+  updateTodo: (id: string, update: TodoUpdate): Promise<TodoSnapshot> =>
+    ipcRenderer.invoke("todos:update", id, update),
   setTodoRating: (id: string, rating: number): Promise<TodoSnapshot> => ipcRenderer.invoke("todos:setRating", id, rating),
   getCalendar: (year: number, month: number): Promise<TodoCalendarDay[]> =>
     ipcRenderer.invoke("todos:getCalendar", year, month),

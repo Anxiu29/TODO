@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTodoSnapshot, getCalendarForMonth, refreshDatabaseForDate } from "../src/data/todoStore";
+import { buildTodoSnapshot, getCalendarForMonth, refreshDatabaseForDate, updateTodoTitle } from "../src/data/todoStore";
 import type { TodoDatabase } from "../src/types/todo";
 
 const database: TodoDatabase = {
@@ -85,5 +85,13 @@ describe("todo daily refresh", () => {
     const snapshot = buildTodoSnapshot(ratedDatabase, "2026-07-01");
 
     expect(snapshot.activeTodos.map((todo) => todo.id)).toEqual(["high", "low"]);
+  });
+
+  it("updates a todo title and ignores empty titles", () => {
+    const updated = updateTodoTitle(database, "active-1", "  更新后的标题  ");
+
+    expect(updated.todos.find((todo) => todo.id === "active-1")?.title).toBe("更新后的标题");
+    expect(updateTodoTitle(database, "active-1", "   ")).toBe(database);
+    expect(updateTodoTitle(database, "missing", "新标题")).toBe(database);
   });
 });

@@ -104,6 +104,15 @@ const refreshDatabaseForDate = (database, date = todayKey()) => {
     todos: database.todos.map((todo) => todo.status === "active" ? { ...todo, scheduledDate: date } : todo)
   };
 };
+const updateTodoTitle = (database, id, title) => {
+  const trimmed = title.trim();
+  if (!trimmed) return database;
+  const index = database.todos.findIndex((todo) => todo.id === id);
+  if (index === -1) return database;
+  const todos = [...database.todos];
+  todos[index] = { ...todos[index], title: trimmed };
+  return { ...database, todos };
+};
 const getCalendarForMonth = (database, year, month) => {
   const monthPrefix = `${year}-${String(month).padStart(2, "0")}`;
   const completedByDate = /* @__PURE__ */ new Map();
@@ -182,6 +191,14 @@ class TodoStore {
   deleteTodo(id) {
     this.database.todos = this.database.todos.filter((todo) => todo.id !== id);
     this.save();
+    return this.getSnapshot();
+  }
+  updateTodo(id, update) {
+    const next = updateTodoTitle(this.database, id, update.title);
+    if (next !== this.database) {
+      this.database = next;
+      this.save();
+    }
     return this.getSnapshot();
   }
   setTodoRating(id, rating) {
@@ -563,6 +580,11 @@ const registerIpc = () => {
   });
   ipcMain.handle("todos:delete", (_event, id) => {
     const snapshot = store.deleteTodo(id);
+    broadcastSnapshot();
+    return snapshot;
+  });
+  ipcMain.handle("todos:update", (_event, id, update) => {
+    const snapshot = store.updateTodo(id, update);
     broadcastSnapshot();
     return snapshot;
   });

@@ -219,6 +219,51 @@ h2 {
   grid-template-columns: 1fr auto;
 }
 
+.todo-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.todo-title-button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 0;
+  cursor: pointer;
+}
+
+.todo-title-button:hover {
+  color: #0369a1;
+}
+
+.todo-delete-button {
+  width: 28px;
+  height: 28px;
+}
+
+.todo-delete-button .button-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.todo-title-input {
+  width: 100%;
+  border: 1px solid #bae6fd;
+  border-radius: 12px;
+  background: white;
+  color: #0f172a;
+  font: inherit;
+  padding: 6px 10px;
+}
+
+.todo-title-input:focus {
+  outline: 2px solid #38bdf8;
+  outline-offset: 1px;
+}
+
 .todo-rating {
   position: relative;
 }

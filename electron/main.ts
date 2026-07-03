@@ -2,7 +2,7 @@ import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen,
 import { join } from "node:path";
 import { attachWindowToDesktop } from "./desktop/attachToDesktop";
 import { TodoStore } from "./todoStore";
-import type { ShortcutRegistrationResult, TodoDraft, WidgetDisplayMode, WindowBounds } from "../src/types/todo";
+import type { ShortcutRegistrationResult, TodoDraft, TodoUpdate, WidgetDisplayMode, WindowBounds } from "../src/types/todo";
 
 let widgetWindow: BrowserWindow | null = null;
 let addTodoWindow: BrowserWindow | null = null;
@@ -371,6 +371,11 @@ const registerIpc = (): void => {
   });
   ipcMain.handle("todos:delete", (_event, id: string) => {
     const snapshot = store.deleteTodo(id);
+    broadcastSnapshot();
+    return snapshot;
+  });
+  ipcMain.handle("todos:update", (_event, id: string, update: TodoUpdate) => {
+    const snapshot = store.updateTodo(id, update);
     broadcastSnapshot();
     return snapshot;
   });

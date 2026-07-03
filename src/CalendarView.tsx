@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
-import type { TodoCalendarDay } from "./types/todo";
+import type { Todo, TodoCalendarDay } from "./types/todo";
 
 const weekDays = ["一", "二", "三", "四", "五", "六", "日"];
 
@@ -25,6 +25,9 @@ export default function CalendarView(): React.ReactElement {
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [days, setDays] = useState<TodoCalendarDay[]>([]);
   const [selectedDate, setSelectedDate] = useState(() => toDateKey(new Date()));
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState("");
+  const skipBlurSaveRef = useRef(false);
 
   const year = currentMonth.getFullYear();
   const month = currentMonth.getMonth() + 1;
@@ -48,6 +51,37 @@ export default function CalendarView(): React.ReactElement {
 
   const changeMonth = (offset: number): void => {
     setCurrentMonth((date) => new Date(date.getFullYear(), date.getMonth() + offset, 1));
+  };
+
+  const startEdit = (todo: Todo): void => {
+    setEditingId(todo.id);
+    setEditingTitle(todo.title);
+  };
+
+  const cancelEdit = (): void => {
+    setEditingId(null);
+    setEditingTitle("");
+  };
+
+  const saveEdit = async (): Promise<void> => {
+    if (!editingId) return;
+
+    const title = editingTitle.trim();
+    if (!title) {
+      cancelEdit();
+      return;
+    }
+
+    await window.todoApi.updateTodo(editingId, { title });
+    cancelEdit();
+  };
+
+  const handleEditBlur = (): void => {
+    if (skipBlurSaveRef.current) {
+      skipBlurSaveRef.current = false;
+      return;
+    }
+    void saveEdit();
   };
 
   return (
@@ -111,10 +145,35 @@ export default function CalendarView(): React.ReactElement {
             ) : (
               selected.completedTodos.map((todo) => (
                 <article className="detail-item" key={todo.id}>
-                  <span>{todo.title}</span>
-                  <button type="button" onClick={() => window.todoApi.reopenTodo(todo.id)}>
-                    恢复
-                  </button>
+                  {editingId === todo.id ? (
+                    <input
+                      className="todo-title-input"
+                      value={editingTitle}
+                      onChange={(event) => setEditingTitle(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void saveEdit();
+                        }
+                        if (event.key === "Escape") {
+                          skipBlurSaveRef.current = true;
+                          cancelEdit();
+                        }
+                      }}
+                      onBlur={handleEditBlur}
+                      aria-label="编辑待办标题"
+                      autoFocus
+                    />
+                  ) : (
+                    <button type="button" className="todo-title-button" onClick={() => startEdit(todo)}>
+                      {todo.title}
+                    </button>
+                  )}
+                  {editingId !== todo.id ? (
+                    <button type="button" onClick={() => window.todoApi.reopenTodo(todo.id)}>
+                      恢复
+                    </button>
+                  ) : null}
                 </article>
               ))
             )}

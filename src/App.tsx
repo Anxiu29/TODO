@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import TodoRating from "./TodoRating";
-import type { AppSettings, TodoSnapshot } from "./types/todo";
+import type { AppSettings, Todo, TodoSnapshot } from "./types/todo";
 
 const emptySnapshot: TodoSnapshot = {
   today: "",
@@ -56,6 +56,9 @@ const Icon = ({ name }: { name: IconName }): React.ReactElement => {
 export default function App(): React.ReactElement {
   const [snapshot, setSnapshot] = useState<TodoSnapshot>(emptySnapshot);
   const [newTitle, setNewTitle] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState("");
+  const skipBlurSaveRef = useRef(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [desktopAttached, setDesktopAttached] = useState<boolean | null>(null);
 
@@ -86,6 +89,38 @@ export default function App(): React.ReactElement {
     const next = await window.todoApi.addTodo({ title });
     setSnapshot(next);
     setNewTitle("");
+  };
+
+  const startEdit = (todo: Todo): void => {
+    setEditingId(todo.id);
+    setEditingTitle(todo.title);
+  };
+
+  const cancelEdit = (): void => {
+    setEditingId(null);
+    setEditingTitle("");
+  };
+
+  const saveEdit = async (): Promise<void> => {
+    if (!editingId) return;
+
+    const title = editingTitle.trim();
+    if (!title) {
+      cancelEdit();
+      return;
+    }
+
+    const next = await window.todoApi.updateTodo(editingId, { title });
+    setSnapshot(next);
+    cancelEdit();
+  };
+
+  const handleEditBlur = (): void => {
+    if (skipBlurSaveRef.current) {
+      skipBlurSaveRef.current = false;
+      return;
+    }
+    void saveEdit();
   };
 
   return (
@@ -153,10 +188,42 @@ export default function App(): React.ReactElement {
                     void window.todoApi.setTodoRating(todo.id, rating).then(setSnapshot);
                   }}
                 />
-                <span>{todo.title}</span>
-                <button className="text-button danger" type="button" onClick={() => window.todoApi.deleteTodo(todo.id)}>
-                  删除
-                </button>
+                {editingId === todo.id ? (
+                  <input
+                    className="todo-title-input"
+                    value={editingTitle}
+                    onChange={(event) => setEditingTitle(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        void saveEdit();
+                      }
+                      if (event.key === "Escape") {
+                        skipBlurSaveRef.current = true;
+                        cancelEdit();
+                      }
+                    }}
+                    onBlur={handleEditBlur}
+                    aria-label="编辑待办标题"
+                    autoFocus
+                  />
+                ) : (
+                  <button type="button" className="todo-title-button" onClick={() => startEdit(todo)}>
+                    {todo.title}
+                  </button>
+                )}
+                {editingId !== todo.id ? (
+                  <button
+                    className="icon-button danger-button todo-delete-button"
+                    type="button"
+                    aria-label={`删除 ${todo.title}`}
+                    onClick={() => window.todoApi.deleteTodo(todo.id)}
+                  >
+                    <svg aria-hidden="true" className="button-icon" viewBox="0 0 24 24">
+                      <path d="M7 7l10 10M17 7 7 17" />
+                    </svg>
+                  </button>
+                ) : null}
               </article>
             ))
           )}

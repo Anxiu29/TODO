@@ -41,6 +41,10 @@ export type TodoDraft = {
   title: string;
 };
 
+export type TodoUpdate = {
+  title: string;
+};
+
 export type WidgetDisplayMode = "desktop" | "float";
 
 export type AppSettings = {
