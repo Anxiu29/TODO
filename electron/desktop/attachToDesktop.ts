@@ -57,7 +57,8 @@ if ($workerw -eq [IntPtr]::Zero) {
 }
 
 $parent = [Win32Desktop]::SetParent($targetHwnd, $workerw)
-if ($parent -eq [IntPtr]::Zero) {
+$lastError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+if ($parent -eq [IntPtr]::Zero -and $lastError -ne 0) {
   exit 3
 }
 

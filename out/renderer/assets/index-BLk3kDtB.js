@@ -12773,6 +12773,10 @@ function SettingsWindow() {
     const next = await window.todoApi.setLaunchAtLogin(enabled);
     setSettings(next);
   };
+  const updateDisplayMode = async (displayMode) => {
+    const next = await window.todoApi.setDisplayMode(displayMode);
+    setSettings(next);
+  };
   return /* @__PURE__ */ jsxRuntimeExports.jsx("main", { className: "settings-window-shell", children: /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "settings-window-card", children: [
     /* @__PURE__ */ jsxRuntimeExports.jsxs("header", { className: "settings-window-header draggable", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
@@ -12794,6 +12798,38 @@ function SettingsWindow() {
           onChange: (event) => updateLaunchAtLogin(event.target.checked)
         }
       )
+    ] }),
+    /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "settings-option vertical no-drag", children: [
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "组件显示方式" }),
+        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "选择组件平时停留的位置。" })
+      ] }),
+      /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { className: "display-mode-options", children: [
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "button",
+          {
+            className: settings?.displayMode === "float" ? "selected" : "",
+            type: "button",
+            onClick: () => updateDisplayMode("float"),
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "一直悬浮在页面" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "组件始终在当前页面上方显示。" })
+            ]
+          }
+        ),
+        /* @__PURE__ */ jsxRuntimeExports.jsxs(
+          "button",
+          {
+            className: settings?.displayMode === "desktop" ? "selected" : "",
+            type: "button",
+            onClick: () => updateDisplayMode("desktop"),
+            children: [
+              /* @__PURE__ */ jsxRuntimeExports.jsx("strong", { children: "只悬浮在桌面上" }),
+              /* @__PURE__ */ jsxRuntimeExports.jsx("span", { children: "平时贴在桌面，点击托盘图标时可出现在任何页面。" })
+            ]
+          }
+        )
+      ] })
     ] }),
     /* @__PURE__ */ jsxRuntimeExports.jsxs("section", { className: "settings-option vertical no-drag", children: [
       /* @__PURE__ */ jsxRuntimeExports.jsxs("div", { children: [

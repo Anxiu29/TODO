@@ -61,7 +61,8 @@ if ($workerw -eq [IntPtr]::Zero) {
 }
 
 $parent = [Win32Desktop]::SetParent($targetHwnd, $workerw)
-if ($parent -eq [IntPtr]::Zero) {
+$lastError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+if ($parent -eq [IntPtr]::Zero -and $lastError -ne 0) {
   exit 3
 }
 
@@ -256,6 +257,8 @@ let settingsWindow = null;
 let tray = null;
 let store;
 let saveBoundsTimer;
+let showOnCurrentPageOverride = false;
+let desktopAttachTimer;
 const rendererUrl = process.env.ELECTRON_RENDERER_URL;
 const fallbackShortcuts = ["CommandOrControl+Alt+T", "CommandOrControl+Alt+N", "CommandOrControl+Shift+Space"];
 const fallbackTrayIconDataUrl = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(
@@ -300,14 +303,31 @@ const showWidgetWindow = () => {
     void createWidgetWindow();
     return;
   }
-  if (store.getSettings().displayMode === "float") {
+  if (store.getSettings().displayMode === "float" || showOnCurrentPageOverride) {
     widgetWindow.setAlwaysOnTop(true, "floating");
+    widgetWindow.setSkipTaskbar(false);
     widgetWindow.moveTop();
     widgetWindow.show();
     widgetWindow.focus();
     return;
   }
   widgetWindow.showInactive();
+};
+const showWidgetOnCurrentPage = async () => {
+  const needsRecreate = store.getSettings().displayMode !== "float" && !showOnCurrentPageOverride;
+  showOnCurrentPageOverride = true;
+  if (!widgetWindow || needsRecreate) {
+    await recreateWidgetWindow();
+    return;
+  }
+  showWidgetWindow();
+};
+const returnWidgetToDesktop = async () => {
+  if (store.getSettings().displayMode !== "desktop" || !showOnCurrentPageOverride) {
+    return;
+  }
+  showOnCurrentPageOverride = false;
+  await recreateWidgetWindow();
 };
 const applyLoginSetting = (enabled) => {
   app.setLoginItemSettings({
@@ -318,6 +338,7 @@ const applyLoginSetting = (enabled) => {
 const recreateWidgetWindow = async () => {
   const existingWindow = widgetWindow;
   widgetWindow = null;
+  clearTimeout(desktopAttachTimer);
   if (existingWindow && !existingWindow.isDestroyed()) {
     store.updateWidgetBounds(existingWindow.getBounds());
     existingWindow.destroy();
@@ -327,7 +348,7 @@ const recreateWidgetWindow = async () => {
 const applyWidgetDisplayMode = async () => {
   if (!widgetWindow) return;
   const settings = store.getSettings();
-  if (settings.displayMode === "float") {
+  if (settings.displayMode === "float" || showOnCurrentPageOverride) {
     widgetWindow.setSkipTaskbar(false);
     widgetWindow.setAlwaysOnTop(true, "floating");
     widgetWindow.show();
@@ -341,6 +362,30 @@ const applyWidgetDisplayMode = async () => {
   widgetWindow.showInactive();
   const attached = await attachWindowToDesktop(widgetWindow);
   widgetWindow.webContents.send("desktop-attach:result", attached);
+  scheduleDesktopAttachRetries();
+};
+const scheduleDesktopAttachRetries = () => {
+  clearTimeout(desktopAttachTimer);
+  if (!widgetWindow || store.getSettings().displayMode !== "desktop" || showOnCurrentPageOverride) {
+    return;
+  }
+  const delays = [150, 600, 1500];
+  const retry = async (index) => {
+    if (!widgetWindow || store.getSettings().displayMode !== "desktop" || showOnCurrentPageOverride) {
+      return;
+    }
+    widgetWindow.showInactive();
+    const attached = await attachWindowToDesktop(widgetWindow);
+    widgetWindow.webContents.send("desktop-attach:result", attached);
+    if (index + 1 < delays.length) {
+      desktopAttachTimer = setTimeout(() => {
+        void retry(index + 1);
+      }, delays[index + 1]);
+    }
+  };
+  desktopAttachTimer = setTimeout(() => {
+    void retry(0);
+  }, delays[0]);
 };
 const defaultWidgetBounds = () => {
   const display = screen.getPrimaryDisplay().workArea;
@@ -371,7 +416,7 @@ const createWidgetWindow = async () => {
     backgroundColor: "#00000000",
     hasShadow: false,
     resizable: true,
-    skipTaskbar: settings.displayMode === "desktop",
+    skipTaskbar: settings.displayMode === "desktop" && !showOnCurrentPageOverride,
     show: false,
     title: "桌面代办",
     webPreferences: {
@@ -383,6 +428,14 @@ const createWidgetWindow = async () => {
   });
   widgetWindow.on("move", persistWidgetBounds);
   widgetWindow.on("resize", persistWidgetBounds);
+  widgetWindow.on("blur", () => {
+    if (store.getSettings().displayMode !== "desktop" || !showOnCurrentPageOverride) {
+      return;
+    }
+    setTimeout(() => {
+      void returnWidgetToDesktop();
+    }, 120);
+  });
   widgetWindow.on("closed", () => {
     widgetWindow = null;
   });
@@ -463,7 +516,7 @@ const createSettingsWindow = async () => {
   const parentBounds = widgetWindow?.getBounds() ?? defaultWidgetBounds();
   settingsWindow = new BrowserWindow({
     width: 420,
-    height: 320,
+    height: 420,
     x: parentBounds.x + 24,
     y: parentBounds.y + 64,
     frame: false,
@@ -526,9 +579,10 @@ const registerIpc = () => {
     return settings;
   });
   ipcMain.handle("settings:setDisplayMode", async (_event, displayMode) => {
+    showOnCurrentPageOverride = false;
     const settings = store.setDisplayMode(displayMode);
     await recreateWidgetWindow();
-    return settings;
+    return applySettings(settings);
   });
   ipcMain.handle("settings:setLaunchAtLogin", (_event, enabled) => {
     applyLoginSetting(enabled);
@@ -588,30 +642,26 @@ const createTray = () => {
   tray.setToolTip("桌面代办");
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      {
-        label: "显示组件",
-        click: () => showWidgetWindow()
-      },
-      {
-        label: "快捷添加",
-        click: () => void createAddTodoWindow()
-      },
-      {
-        label: "完成日历",
-        click: () => void createCalendarWindow()
-      },
-      {
-        label: "设置",
-        click: () => void createSettingsWindow()
-      },
-      { type: "separator" },
+      // {
+      //   label: "快捷添加",
+      //   click: () => void createAddTodoWindow()
+      // },
+      // {
+      //   label: "完成日历",
+      //   click: () => void createCalendarWindow()
+      // },
+      // {
+      //   label: "设置",
+      //   click: () => void createSettingsWindow()
+      // },
+      //{ type: "separator" },
       {
         label: "退出",
         click: () => app.quit()
       }
     ])
   );
-  tray.on("click", () => showWidgetWindow());
+  tray.on("click", () => void showWidgetOnCurrentPage());
 };
 const boot = async () => {
   store = new TodoStore();

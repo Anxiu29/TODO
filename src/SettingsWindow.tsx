@@ -67,6 +67,11 @@ export default function SettingsWindow(): React.ReactElement {
     setSettings(next);
   };
 
+  const updateDisplayMode = async (displayMode: AppSettings["displayMode"]): Promise<void> => {
+    const next = await window.todoApi.setDisplayMode(displayMode);
+    setSettings(next);
+  };
+
   return (
     <main className="settings-window-shell">
       <section className="settings-window-card">
@@ -91,6 +96,31 @@ export default function SettingsWindow(): React.ReactElement {
             onChange={(event) => updateLaunchAtLogin(event.target.checked)}
           />
         </label>
+
+        <section className="settings-option vertical no-drag">
+          <div>
+            <strong>组件显示方式</strong>
+            <span>选择组件平时停留的位置。</span>
+          </div>
+          <div className="display-mode-options">
+            <button
+              className={settings?.displayMode === "float" ? "selected" : ""}
+              type="button"
+              onClick={() => updateDisplayMode("float")}
+            >
+              <strong>一直悬浮在页面</strong>
+              <span>组件始终在当前页面上方显示。</span>
+            </button>
+            <button
+              className={settings?.displayMode === "desktop" ? "selected" : ""}
+              type="button"
+              onClick={() => updateDisplayMode("desktop")}
+            >
+              <strong>只悬浮在桌面上</strong>
+              <span>平时贴在桌面，点击托盘图标时可出现在任何页面。</span>
+            </button>
+          </div>
+        </section>
 
         <section className="settings-option vertical no-drag">
           <div>
