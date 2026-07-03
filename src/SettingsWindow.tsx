@@ -95,17 +95,14 @@ export default function SettingsWindow(): React.ReactElement {
   return (
     <main className="settings-window-shell">
       <section className="settings-window-card">
-        <header className="settings-window-header draggable">
+        <header className="calendar-header">
           <div>
             <p className="eyebrow">设置</p>
             <h1>偏好设置</h1>
           </div>
-          <button className="close-button no-drag" type="button" aria-label="关闭设置" onClick={() => window.todoApi.closeCurrentWindow()}>
-            ×
-          </button>
         </header>
 
-        <label className="settings-option no-drag">
+        <label className="settings-option">
           <div>
             <strong>开机自动启动</strong>
             <span>登录 Windows 后自动启动桌面代办。</span>
@@ -117,7 +114,7 @@ export default function SettingsWindow(): React.ReactElement {
           />
         </label>
 
-        <section className="settings-option vertical no-drag">
+        <section className="settings-option vertical">
           <div>
             <strong>组件显示方式</strong>
             <span>选择组件平时停留的位置。</span>
@@ -142,7 +139,7 @@ export default function SettingsWindow(): React.ReactElement {
           </div>
         </section>
 
-        <section className="settings-option vertical no-drag">
+        <section className="settings-option vertical">
           <div>
             <strong>快速添加快捷键</strong>
             <span>点击输入框后直接按下想要的组合键。</span>
@@ -164,7 +161,7 @@ export default function SettingsWindow(): React.ReactElement {
           <p className="settings-message">{message}</p>
         </section>
 
-        <section className="settings-option vertical no-drag">
+        <section className="settings-option vertical">
           <div>
             <strong>显示组件快捷键</strong>
             <span>点击输入框后按下快捷键，用来临时显示组件。</span>

@@ -70,7 +70,6 @@ select {
 .widget-header,
 .quick-add-header,
 .calendar-header,
-.settings-window-header,
 .header-actions,
 .summary-row,
 .section-title,
@@ -372,15 +371,16 @@ h2 {
 }
 
 .settings-window-shell {
-  padding: 10px;
+  min-height: 100vh;
+  background: #f8fafc;
 }
 
 .settings-window-card {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  height: calc(100vh - 20px);
-  padding: 18px;
+  gap: 20px;
+  height: calc(100vh - 24px);
+  padding: 24px;
 }
 
 .settings-option {

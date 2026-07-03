@@ -317,18 +317,13 @@ const createSettingsWindow = async (): Promise<void> => {
     return;
   }
 
-  const parentBounds = widgetWindow?.getBounds() ?? defaultWidgetBounds();
   settingsWindow = new BrowserWindow({
-    width: 420,
-    height: 560,
-    x: parentBounds.x + 24,
-    y: parentBounds.y + 64,
-    frame: false,
-    resizable: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    show: false,
+    width: 520,
+    height: 640,
+    minWidth: 420,
+    minHeight: 520,
     title: "设置",
+    show: false,
     webPreferences: {
       preload: join(__dirname, "../preload/preload.mjs"),
       sandbox: false,
@@ -337,16 +332,12 @@ const createSettingsWindow = async (): Promise<void> => {
     }
   });
 
-  settingsWindow.on("blur", () => settingsWindow?.hide());
   settingsWindow.on("closed", () => {
     settingsWindow = null;
   });
 
   await loadRenderer(settingsWindow, "settings");
-  settingsWindow.once("ready-to-show", () => {
-    settingsWindow?.show();
-    settingsWindow?.focus();
-  });
+  settingsWindow.once("ready-to-show", () => settingsWindow?.show());
 };
 
 const applySettings = (settings: ReturnType<TodoStore["getSettings"]>): ReturnType<TodoStore["getSettings"]> => {
