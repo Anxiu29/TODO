@@ -6,7 +6,6 @@ const database: TodoDatabase = {
   version: 1,
   lastRefreshDate: "2026-07-01",
   settings: {
-    desktopAttachEnabled: true,
     displayMode: "desktop",
     launchAtLogin: false,
     shortcut: "CommandOrControl+Alt+T",

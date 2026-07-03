@@ -1,6 +1,7 @@
 import type { Todo, TodoCalendarDay, TodoDatabase, TodoSnapshot } from "../types/todo";
 import { normalizeTodoRating } from "../types/todo";
 
+/** 将日期格式化为 YYYY-MM-DD，作为待办的「归属日」键。 */
 export const todayKey = (date = new Date()): string => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -8,6 +9,9 @@ export const todayKey = (date = new Date()): string => {
   return `${year}-${month}-${day}`;
 };
 
+/**
+ * 待办排序：进行中优先，同状态按评分降序，再按创建时间升序。
+ */
 export const sortTodos = (todos: Todo[]): Todo[] =>
   [...todos].sort((a, b) => {
     if (a.status !== b.status) return a.status === "active" ? -1 : 1;
@@ -16,17 +20,21 @@ export const sortTodos = (todos: Todo[]): Todo[] =>
     return a.createdAt.localeCompare(b.createdAt);
   });
 
+/** 根据数据库构建 UI 用的当日快照（进行中 + 今日完成）。 */
 export const buildTodoSnapshot = (database: TodoDatabase, date = todayKey()): TodoSnapshot => {
-  const allTodos = sortTodos(database.todos);
+  const sorted = sortTodos(database.todos);
 
   return {
     today: date,
-    activeTodos: allTodos.filter((todo) => todo.status === "active" && todo.scheduledDate === date),
-    completedToday: allTodos.filter((todo) => todo.status === "completed" && todo.completedAt?.startsWith(date)),
-    allTodos
+    activeTodos: sorted.filter((todo) => todo.status === "active" && todo.scheduledDate === date),
+    completedToday: sorted.filter((todo) => todo.status === "completed" && todo.completedAt?.startsWith(date))
   };
 };
 
+/**
+ * 日切逻辑：日期变化时，把所有进行中待办的 scheduledDate 更新为新日期。
+ * 已完成待办保留 completedAt，供日历回看。
+ */
 export const refreshDatabaseForDate = (database: TodoDatabase, date = todayKey()): TodoDatabase => {
   if (database.lastRefreshDate === date) {
     return database;
@@ -39,6 +47,7 @@ export const refreshDatabaseForDate = (database: TodoDatabase, date = todayKey()
   };
 };
 
+/** 按月聚合已完成待办，供日历视图展示每日完成数量与列表。 */
 export const getCalendarForMonth = (database: TodoDatabase, year: number, month: number): TodoCalendarDay[] => {
   const monthPrefix = `${year}-${String(month).padStart(2, "0")}`;
   const completedByDate = new Map<string, Todo[]>();

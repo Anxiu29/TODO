@@ -23,6 +23,10 @@ const readHwnd = (window: BrowserWindow): Hwnd => {
   return koffi.decode(handle, HWND);
 };
 
+/**
+ * 查找承载桌面图标的 WorkerW 窗口。
+ * 先向 Progman 发送 0x052c 消息生成 WorkerW，再遍历找到带 SHELLDLL_DefView 的层级。
+ */
 const findDesktopWorkerW = (): Hwnd => {
   const progman = FindWindowW("Progman", null);
   if (!progman) {
@@ -52,6 +56,7 @@ const findDesktopWorkerW = (): Hwnd => {
   return workerw ?? progman;
 };
 
+/** 将 Electron 窗口设为桌面 WorkerW 的子窗口，使其显示在壁纸之上、图标之下。 */
 export const attachWindowToDesktop = async (window: BrowserWindow): Promise<boolean> => {
   if (process.platform !== "win32") {
     return false;

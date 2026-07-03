@@ -14,10 +14,6 @@
     "diagnose:desktop": "node scripts/diagnose-desktop-attach.cjs"
   },
   "dependencies": {
-    "@electron-toolkit/preload": "latest",
-    "@electron-toolkit/utils": "latest",
-    "clsx": "latest",
-    "date-fns": "latest",
     "koffi": "^3.1.0",
     "react": "latest",
     "react-dom": "latest"

@@ -8,7 +8,6 @@ const api = {
   setTodoRating: (id, rating) => ipcRenderer.invoke("todos:setRating", id, rating),
   getCalendar: (year, month) => ipcRenderer.invoke("todos:getCalendar", year, month),
   getSettings: () => ipcRenderer.invoke("settings:get"),
-  setDesktopAttachEnabled: (enabled) => ipcRenderer.invoke("settings:setDesktopAttachEnabled", enabled),
   setDisplayMode: (displayMode) => ipcRenderer.invoke("settings:setDisplayMode", displayMode),
   setLaunchAtLogin: (enabled) => ipcRenderer.invoke("settings:setLaunchAtLogin", enabled),
   setShortcut: (shortcut) => ipcRenderer.invoke("settings:setShortcut", shortcut),
@@ -17,8 +16,6 @@ const api = {
   openCalendar: () => ipcRenderer.invoke("windows:openCalendar"),
   openSettings: () => ipcRenderer.invoke("windows:openSettings"),
   closeCurrentWindow: () => ipcRenderer.invoke("windows:closeCurrent"),
-  hideWidget: () => ipcRenderer.invoke("windows:hideWidget"),
-  showWidget: () => ipcRenderer.invoke("windows:showWidget"),
   quitApp: () => ipcRenderer.invoke("app:quit"),
   onTodosChanged: (callback) => {
     const listener = (_event, snapshot) => callback(snapshot);

@@ -87,12 +87,11 @@ const sortTodos = (todos) => [...todos].sort((a, b) => {
   return a.createdAt.localeCompare(b.createdAt);
 });
 const buildTodoSnapshot = (database, date = todayKey()) => {
-  const allTodos = sortTodos(database.todos);
+  const sorted = sortTodos(database.todos);
   return {
     today: date,
-    activeTodos: allTodos.filter((todo) => todo.status === "active" && todo.scheduledDate === date),
-    completedToday: allTodos.filter((todo) => todo.status === "completed" && todo.completedAt?.startsWith(date)),
-    allTodos
+    activeTodos: sorted.filter((todo) => todo.status === "active" && todo.scheduledDate === date),
+    completedToday: sorted.filter((todo) => todo.status === "completed" && todo.completedAt?.startsWith(date))
   };
 };
 const refreshDatabaseForDate = (database, date = todayKey()) => {
@@ -127,7 +126,6 @@ const createEmptyDatabase = (date = todayKey()) => ({
   lastRefreshDate: date,
   todos: [],
   settings: {
-    desktopAttachEnabled: true,
     displayMode: "desktop",
     launchAtLogin: false,
     shortcut: "CommandOrControl+Alt+T",
@@ -197,6 +195,7 @@ class TodoStore {
   getCalendar(year, month) {
     return getCalendarForMonth(this.database, year, month);
   }
+  /** 跨天时把未完成待办滚到当天，并更新 lastRefreshDate。 */
   refreshDaily(date = todayKey()) {
     const refreshed = refreshDatabaseForDate(this.database, date);
     if (refreshed !== this.database) {
@@ -212,11 +211,6 @@ class TodoStore {
   getSettings() {
     return this.database.settings;
   }
-  setDesktopAttachEnabled(enabled) {
-    this.database.settings.desktopAttachEnabled = enabled;
-    this.save();
-    return this.database.settings;
-  }
   setShortcut(shortcut) {
     this.database.settings.shortcut = shortcut;
     this.save();
@@ -229,7 +223,6 @@ class TodoStore {
   }
   setDisplayMode(displayMode) {
     this.database.settings.displayMode = displayMode;
-    this.database.settings.desktopAttachEnabled = displayMode === "desktop";
     this.save();
     return this.database.settings;
   }
@@ -238,6 +231,7 @@ class TodoStore {
     this.save();
     return this.database.settings;
   }
+  /** 从磁盘加载 JSON；文件不存在或解析失败时返回空库。 */
   load() {
     try {
       const raw = readFileSync(this.filePath, "utf8");
@@ -579,14 +573,6 @@ const registerIpc = () => {
   });
   ipcMain.handle("todos:getCalendar", (_event, year, month) => store.getCalendar(year, month));
   ipcMain.handle("settings:get", () => store.getSettings());
-  ipcMain.handle("settings:setDesktopAttachEnabled", async (_event, enabled) => {
-    const settings = store.setDesktopAttachEnabled(enabled);
-    if (enabled && widgetWindow) {
-      const attached = await attachWindowToDesktop(widgetWindow);
-      widgetWindow.webContents.send("desktop-attach:result", attached);
-    }
-    return settings;
-  });
   ipcMain.handle("settings:setDisplayMode", async (_event, displayMode) => {
     showOnCurrentPageOverride = false;
     const settings = store.setDisplayMode(displayMode);
@@ -603,8 +589,6 @@ const registerIpc = () => {
   ipcMain.handle("windows:openCalendar", () => createCalendarWindow());
   ipcMain.handle("windows:openSettings", () => createSettingsWindow());
   ipcMain.handle("windows:closeCurrent", (event) => BrowserWindow.fromWebContents(event.sender)?.hide());
-  ipcMain.handle("windows:hideWidget", () => widgetWindow?.hide());
-  ipcMain.handle("windows:showWidget", () => showWidgetWindow());
   ipcMain.handle("app:quit", () => app.quit());
 };
 const getShortcutValue = (kind) => kind === "quickAdd" ? store.getSettings().shortcut : store.getSettings().showWidgetShortcut;
@@ -687,19 +671,6 @@ const createTray = () => {
   tray.setToolTip("桌面代办");
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      // {
-      //   label: "快捷添加",
-      //   click: () => void createAddTodoWindow()
-      // },
-      // {
-      //   label: "完成日历",
-      //   click: () => void createCalendarWindow()
-      // },
-      // {
-      //   label: "设置",
-      //   click: () => void createSettingsWindow()
-      // },
-      //{ type: "separator" },
       {
         label: "退出",
         click: () => app.quit()

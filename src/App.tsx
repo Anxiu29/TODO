@@ -6,8 +6,7 @@ import type { AppSettings, TodoSnapshot } from "./types/todo";
 const emptySnapshot: TodoSnapshot = {
   today: "",
   activeTodos: [],
-  completedToday: [],
-  allTodos: []
+  completedToday: []
 };
 
 const formatDate = (date: string): string => {

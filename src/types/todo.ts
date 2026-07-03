@@ -1,5 +1,4 @@
-export const TODO_RATING_MIN = 1;
-export const TODO_RATING_MAX = 5;
+export const TODO_RATING_MIN = 1;export const TODO_RATING_MAX = 5;
 export const TODO_RATING_DEFAULT = 1;
 
 export const normalizeTodoRating = (rating?: number): number => {
@@ -36,7 +35,6 @@ export type TodoSnapshot = {
   today: string;
   activeTodos: Todo[];
   completedToday: Todo[];
-  allTodos: Todo[];
 };
 
 export type TodoDraft = {
@@ -47,7 +45,6 @@ export type WidgetDisplayMode = "desktop" | "float";
 
 export type AppSettings = {
   widgetBounds?: WindowBounds;
-  desktopAttachEnabled: boolean;
   displayMode: WidgetDisplayMode;
   launchAtLogin: boolean;
   shortcut: string;
@@ -61,6 +58,7 @@ export type ShortcutRegistrationResult = {
   activeShortcut: string;
 };
 
+/** 持久化到 todos.json 的完整数据结构。 */
 export type TodoDatabase = {
   version: 1;
   lastRefreshDate: string;

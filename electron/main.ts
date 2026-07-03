@@ -67,6 +67,7 @@ const broadcastSettings = (): void => {
   }
 };
 
+/** 显示挂件窗口：置顶模式聚焦显示，桌面模式仅 showInactive 避免抢焦点。 */
 const showWidgetWindow = (): void => {
   if (!widgetWindow) {
     void createWidgetWindow();
@@ -85,6 +86,7 @@ const showWidgetWindow = (): void => {
   widgetWindow.showInactive();
 };
 
+/** 托盘点击或快捷键触发：临时把挂件从桌面层拉到当前页面置顶。 */
 const showWidgetOnCurrentPage = async (): Promise<void> => {
   const needsRecreate = store.getSettings().displayMode !== "float" && !showOnCurrentPageOverride;
   showOnCurrentPageOverride = true;
@@ -97,6 +99,7 @@ const showWidgetOnCurrentPage = async (): Promise<void> => {
   showWidgetWindow();
 };
 
+/** 挂件失焦后，若处于「临时置顶」状态则重建窗口并贴回桌面。 */
 const returnWidgetToDesktop = async (): Promise<void> => {
   if (store.getSettings().displayMode !== "desktop" || !showOnCurrentPageOverride) {
     return;
@@ -113,6 +116,7 @@ const applyLoginSetting = (enabled: boolean): void => {
   });
 };
 
+/** 销毁并重建挂件，用于切换显示模式或桌面/置顶状态变化。 */
 const recreateWidgetWindow = async (): Promise<void> => {
   const existingWindow = widgetWindow;
   widgetWindow = null;
@@ -124,6 +128,7 @@ const recreateWidgetWindow = async (): Promise<void> => {
   await createWidgetWindow();
 };
 
+/** 按设置应用挂件显示模式：float 始终置顶，desktop 调用 Win32 贴到桌面 WorkerW。 */
 const applyWidgetDisplayMode = async (): Promise<void> => {
   if (!widgetWindow) return;
 
@@ -146,6 +151,7 @@ const applyWidgetDisplayMode = async (): Promise<void> => {
   scheduleDesktopAttachRetries();
 };
 
+/** 桌面附着可能因 Explorer 未就绪失败，延迟重试数次。 */
 const scheduleDesktopAttachRetries = (): void => {
   clearTimeout(desktopAttachTimer);
   if (!widgetWindow || store.getSettings().displayMode !== "desktop" || showOnCurrentPageOverride) {
@@ -345,6 +351,7 @@ const applySettings = (settings: ReturnType<TodoStore["getSettings"]>): ReturnTy
   return settings;
 };
 
+/** 注册渲染进程 IPC：待办 CRUD、设置、窗口控制。 */
 const registerIpc = (): void => {
   ipcMain.handle("todos:getSnapshot", () => store.refreshDaily());
   ipcMain.handle("todos:add", (_event, draft: TodoDraft) => {
@@ -374,14 +381,6 @@ const registerIpc = (): void => {
   });
   ipcMain.handle("todos:getCalendar", (_event, year: number, month: number) => store.getCalendar(year, month));
   ipcMain.handle("settings:get", () => store.getSettings());
-  ipcMain.handle("settings:setDesktopAttachEnabled", async (_event, enabled: boolean) => {
-    const settings = store.setDesktopAttachEnabled(enabled);
-    if (enabled && widgetWindow) {
-      const attached = await attachWindowToDesktop(widgetWindow);
-      widgetWindow.webContents.send("desktop-attach:result", attached);
-    }
-    return settings;
-  });
   ipcMain.handle("settings:setDisplayMode", async (_event, displayMode: WidgetDisplayMode) => {
     showOnCurrentPageOverride = false;
     const settings = store.setDisplayMode(displayMode);
@@ -398,8 +397,6 @@ const registerIpc = (): void => {
   ipcMain.handle("windows:openCalendar", () => createCalendarWindow());
   ipcMain.handle("windows:openSettings", () => createSettingsWindow());
   ipcMain.handle("windows:closeCurrent", (event) => BrowserWindow.fromWebContents(event.sender)?.hide());
-  ipcMain.handle("windows:hideWidget", () => widgetWindow?.hide());
-  ipcMain.handle("windows:showWidget", () => showWidgetWindow());
   ipcMain.handle("app:quit", () => app.quit());
 }
 
@@ -501,19 +498,6 @@ const createTray = (): void => {
   tray.setToolTip("桌面代办");
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      // {
-      //   label: "快捷添加",
-      //   click: () => void createAddTodoWindow()
-      // },
-      // {
-      //   label: "完成日历",
-      //   click: () => void createCalendarWindow()
-      // },
-      // {
-      //   label: "设置",
-      //   click: () => void createSettingsWindow()
-      // },
-      //{ type: "separator" },
       {
         label: "退出",
         click: () => app.quit()
@@ -523,6 +507,7 @@ const createTray = (): void => {
   tray.on("click", () => void showWidgetOnCurrentPage());
 };
 
+/** 应用启动：初始化存储、窗口、全局快捷键与托盘。 */
 const boot = async (): Promise<void> => {
   store = new TodoStore();
   applyLoginSetting(store.getSettings().launchAtLogin);

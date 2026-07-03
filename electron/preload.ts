@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { AppSettings, ShortcutRegistrationResult, TodoCalendarDay, TodoDraft, TodoSnapshot } from "../src/types/todo";
 
+/** 渲染进程可调用的 API，经 contextBridge 安全暴露给 window.todoApi。 */
 const api = {
   getSnapshot: (): Promise<TodoSnapshot> => ipcRenderer.invoke("todos:getSnapshot"),
   addTodo: (draft: TodoDraft): Promise<TodoSnapshot> => ipcRenderer.invoke("todos:add", draft),
@@ -11,8 +12,6 @@ const api = {
   getCalendar: (year: number, month: number): Promise<TodoCalendarDay[]> =>
     ipcRenderer.invoke("todos:getCalendar", year, month),
   getSettings: (): Promise<AppSettings> => ipcRenderer.invoke("settings:get"),
-  setDesktopAttachEnabled: (enabled: boolean): Promise<AppSettings> =>
-    ipcRenderer.invoke("settings:setDesktopAttachEnabled", enabled),
   setDisplayMode: (displayMode: AppSettings["displayMode"]): Promise<AppSettings> =>
     ipcRenderer.invoke("settings:setDisplayMode", displayMode),
   setLaunchAtLogin: (enabled: boolean): Promise<AppSettings> => ipcRenderer.invoke("settings:setLaunchAtLogin", enabled),
@@ -23,8 +22,6 @@ const api = {
   openCalendar: (): Promise<void> => ipcRenderer.invoke("windows:openCalendar"),
   openSettings: (): Promise<void> => ipcRenderer.invoke("windows:openSettings"),
   closeCurrentWindow: (): Promise<void> => ipcRenderer.invoke("windows:closeCurrent"),
-  hideWidget: (): Promise<void> => ipcRenderer.invoke("windows:hideWidget"),
-  showWidget: (): Promise<void> => ipcRenderer.invoke("windows:showWidget"),
   quitApp: (): Promise<void> => ipcRenderer.invoke("app:quit"),
   onTodosChanged: (callback: (snapshot: TodoSnapshot) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, snapshot: TodoSnapshot): void => callback(snapshot);
