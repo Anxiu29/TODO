@@ -1,5 +1,6 @@
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen, Tray } from "electron";
 import { join } from "node:path";
+import { configureUserDataPath } from "./appPaths";
 import { attachWindowToDesktop, detachWindowFromDesktop } from "./desktop/attachToDesktop";
 import { TodoStore } from "./todoStore";
 import type { ShortcutRegistrationResult, TodoDraft, TodoUpdate, WindowBounds } from "../src/types/todo";
@@ -546,6 +547,8 @@ const boot = async (): Promise<void> => {
   registerGlobalShortcuts();
   createTray();
 };
+
+configureUserDataPath();
 
 const gotLock = app.requestSingleInstanceLock();
 

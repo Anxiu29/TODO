@@ -47,6 +47,7 @@ export const createEmptyDatabase = (date = todayKey()): TodoDatabase => ({
  * 主进程待办存储：唯一读写磁盘的位置。
 
  * 数据保存在 userData/todos.json，所有 UI 变更经 IPC 调用此类方法。
+ * 安装版：%APPDATA%/Desktop Todo Widget/；便携版：exe 同目录 data/。
 
  */
 
