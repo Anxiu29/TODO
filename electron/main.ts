@@ -548,6 +548,7 @@ const boot = async (): Promise<void> => {
   createTray();
 };
 
+// 须在 requestSingleInstanceLock / TodoStore 之前执行，见 appPaths.ts
 configureUserDataPath();
 
 const gotLock = app.requestSingleInstanceLock();

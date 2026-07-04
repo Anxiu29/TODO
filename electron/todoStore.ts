@@ -43,14 +43,12 @@ export const createEmptyDatabase = (date = todayKey()): TodoDatabase => ({
 
 
 /**
-
- * 主进程待办存储：唯一读写磁盘的位置。
-
- * 数据保存在 userData/todos.json，所有 UI 变更经 IPC 调用此类方法。
- * 安装版：%APPDATA%/Desktop Todo Widget/；便携版：exe 同目录 data/。
-
+ * 主进程待办存储：唯一读写磁盘的位置，所有 UI 变更经 IPC 调用此类方法。
+ *
+ * 数据文件：{userData}/todos.json
+ * - 开发模式：%APPDATA%/Desktop Todo Widget/（Electron 默认）
+ * - 打包后：exe 同目录 data/（由 configureUserDataPath 在启动时设置）
  */
-
 export class TodoStore {
 
   private database: TodoDatabase;
