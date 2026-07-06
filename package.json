@@ -34,6 +34,13 @@
   "build": {
     "appId": "com.local.desktop-todo-widget",
     "productName": "Desktop Todo Widget",
+    "icon": "build/icon.png",
+    "extraResources": [
+      {
+        "from": "build/icon.png",
+        "to": "icon.png"
+      }
+    ],
     "directories": {
       "output": "release/${version}"
     },

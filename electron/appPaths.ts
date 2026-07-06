@@ -25,3 +25,7 @@ export const configureUserDataPath = (): void => {
   const appDir = process.env.PORTABLE_EXECUTABLE_DIR ?? dirname(app.getPath("exe"));
   app.setPath("userData", join(appDir, "data"));
 };
+
+/** 应用图标路径：开发读 build/icon.png，打包后读 extraResources 中的 icon.png */
+export const getAppIconPath = (): string =>
+  app.isPackaged ? join(process.resourcesPath, "icon.png") : join(app.getAppPath(), "build/icon.png");

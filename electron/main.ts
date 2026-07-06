@@ -11,7 +11,7 @@
  */
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen, Tray } from "electron";
 import { join } from "node:path";
-import { configureUserDataPath } from "./appPaths";
+import { configureUserDataPath, getAppIconPath } from "./appPaths";
 import { attachWindowToDesktop, detachWindowFromDesktop } from "./desktop/attachToDesktop";
 import { TodoStore } from "./todoStore";
 import type { ShortcutRegistrationResult, TodoDraft, TodoUpdate, WindowBounds } from "../src/types/todo";
@@ -44,12 +44,11 @@ const isFloating = (): boolean => pinnedFloat || temporaryFloat;
 const rendererUrl = process.env.ELECTRON_RENDERER_URL;
 /** 首选快捷键注册失败时依次尝试的备选组合 */
 const fallbackShortcuts = ["CommandOrControl+Alt+T", "CommandOrControl+Alt+N", "CommandOrControl+Shift+Space"];
-/** 无法从 exe 读取图标时，托盘使用的内联 SVG 占位图 */
-const fallbackTrayIconDataUrl =
-  "data:image/svg+xml;charset=utf-8," +
-  encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#0284c7"/><path d="M9 16.5l4 4L23 10.5" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`
-  );
+
+const loadAppIcon = () => {
+  const icon = nativeImage.createFromPath(getAppIconPath());
+  return icon.isEmpty() ? nativeImage.createFromPath(process.execPath) : icon;
+};
 
 /**
  * 加载渲染页面。四个窗口共用同一 index.html，通过 ?view= 区分组件。
@@ -275,6 +274,7 @@ const createWidgetWindow = async (): Promise<void> => {
     skipTaskbar: !isFloating(),
     show: false,
     title: "桌面代办",
+    icon: getAppIconPath(),
     webPreferences: {
       preload: join(__dirname, "../preload/preload.mjs"),
       sandbox: false,
@@ -325,6 +325,7 @@ const createAddTodoWindow = async (): Promise<void> => {
     skipTaskbar: true,
     show: false,
     title: "添加代办",
+    icon: getAppIconPath(),
     webPreferences: {
       preload: join(__dirname, "../preload/preload.mjs"),
       sandbox: false,
@@ -360,6 +361,7 @@ const createCalendarWindow = async (): Promise<void> => {
     minHeight: 520,
     title: "完成日历",
     show: false,
+    icon: getAppIconPath(),
     webPreferences: {
       preload: join(__dirname, "../preload/preload.mjs"),
       sandbox: false,
@@ -390,6 +392,7 @@ const createSettingsWindow = async (): Promise<void> => {
     minHeight: 520,
     title: "设置",
     show: false,
+    icon: getAppIconPath(),
     webPreferences: {
       preload: join(__dirname, "../preload/preload.mjs"),
       sandbox: false,
@@ -579,8 +582,7 @@ const updateShortcut = (kind: ShortcutKind, shortcut: string): ShortcutRegistrat
 
 /** 创建系统托盘：左键临时显示挂件，右键菜单仅「退出」 */
 const createTray = (): void => {
-  const appIcon = nativeImage.createFromPath(process.execPath);
-  const trayIcon = appIcon.isEmpty() ? nativeImage.createFromDataURL(fallbackTrayIconDataUrl) : appIcon.resize({ width: 16, height: 16 });
+  const trayIcon = loadAppIcon().resize({ width: 16, height: 16 });
 
   tray = new Tray(trayIcon);
   tray.setToolTip("桌面代办");
