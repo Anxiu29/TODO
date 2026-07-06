@@ -1,3 +1,9 @@
+/**
+ * 偏好设置窗口（?view=settings）。
+ *
+ * 支持：开机自启、录制全局快捷键（快速添加 / 显示组件）。
+ * 快捷键通过 input onKeyDown 捕获键盘事件，转换为 Electron Accelerator 格式后 IPC 注册。
+ */
 import { useEffect, useMemo, useState } from "react";
 import type React from "react";
 import type { AppSettings } from "./types/todo";
@@ -7,6 +13,10 @@ const formatShortcut = (shortcut?: string): string =>
     .replace("CommandOrControl", "Ctrl")
     .replace(/\+/g, " + ");
 
+/**
+ * 将 DOM KeyboardEvent 的 key/code 转为 Electron 加速器片段。
+ * 需与 main.ts 中 normalizeShortcut 的期望格式一致。
+ */
 const keyToAcceleratorPart = (key: string, code: string): string => {
   if (key === " ") return "Space";
   if (key === "Escape") return "Esc";
@@ -18,12 +28,14 @@ const keyToAcceleratorPart = (key: string, code: string): string => {
   return key.length === 1 ? key.toUpperCase() : key;
 };
 
+/** 组合 Ctrl/Alt/Shift/Meta 与主键，生成如 CommandOrControl+Alt+T */
 const eventToShortcut = (event: React.KeyboardEvent<HTMLInputElement>): string => {
   const parts: string[] = [];
   if (event.ctrlKey || event.metaKey) parts.push("CommandOrControl");
   if (event.altKey) parts.push("Alt");
   if (event.shiftKey) parts.push("Shift");
 
+  // 忽略单独按下修饰键
   if (!["Control", "Shift", "Alt", "Meta"].includes(event.key)) {
     parts.push(keyToAcceleratorPart(event.key, event.code));
   }

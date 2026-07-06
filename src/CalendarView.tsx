@@ -1,7 +1,14 @@
+/**
+ * 完成日历窗口（?view=calendar）。
+ *
+ * 左侧月历格显示每日完成数量，右侧展示选中日期的完成列表。
+ * 支持编辑标题、恢复为进行中；待办变更时通过 onTodosChanged 自动刷新。
+ */
 import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import type { Todo, TodoCalendarDay } from "./types/todo";
 
+/** 周一为首的中文星期标签 */
 const weekDays = ["一", "二", "三", "四", "五", "六", "日"];
 
 const toDateKey = (date: Date): string => {
@@ -11,6 +18,10 @@ const toDateKey = (date: Date): string => {
   return `${year}-${month}-${day}`;
 };
 
+/**
+ * 生成 6 行 × 7 列 = 42 个日期格，覆盖当月完整周。
+ * 以周一为一周起始（firstWeekday 调整）。
+ */
 const getMonthCells = (current: Date): Date[] => {
   const year = current.getFullYear();
   const month = current.getMonth();
@@ -37,6 +48,7 @@ export default function CalendarView(): React.ReactElement {
     setDays(next);
   };
 
+  /** 切换月份或待办变更时重新拉取当月完成数据 */
   useEffect(() => {
     void loadCalendar();
     const off = window.todoApi.onTodosChanged(() => {

@@ -1,3 +1,14 @@
+/**
+ * Electron 主进程入口。
+ *
+ * 职责概览：
+ * - 管理四个 BrowserWindow：桌面挂件、快捷添加、完成日历、设置
+ * - 通过 TodoStore 读写 todos.json，经 IPC 与渲染进程通信
+ * - 注册全局快捷键（快捷添加 / 显示挂件）与系统托盘
+ * - 控制挂件两种显示模式：贴桌面（WorkerW 子窗口）或悬浮置顶
+ *
+ * 启动顺序：configureUserDataPath → requestSingleInstanceLock → app.whenReady → boot
+ */
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen, Tray } from "electron";
 import { join } from "node:path";
 import { configureUserDataPath } from "./appPaths";
@@ -5,27 +16,45 @@ import { attachWindowToDesktop, detachWindowFromDesktop } from "./desktop/attach
 import { TodoStore } from "./todoStore";
 import type { ShortcutRegistrationResult, TodoDraft, TodoUpdate, WindowBounds } from "../src/types/todo";
 
+/** 桌面挂件窗口（无边框透明，可贴桌面或悬浮） */
 let widgetWindow: BrowserWindow | null = null;
+/** 全局快捷键唤起的快捷添加浮窗 */
 let addTodoWindow: BrowserWindow | null = null;
+/** 完成日历独立窗口 */
 let calendarWindow: BrowserWindow | null = null;
+/** 偏好设置独立窗口 */
 let settingsWindow: BrowserWindow | null = null;
+/** 系统托盘图标，点击可临时显示挂件 */
 let tray: Tray | null = null;
+/** 待办数据持久化层，构造时即加载 todos.json */
 let store: TodoStore;
+/** 防抖定时器：窗口 move/resize 后 300ms 再写入 widgetBounds */
 let saveBoundsTimer: NodeJS.Timeout | undefined;
+/** 用户手动开启的「始终置顶」模式（设置里 pin 按钮） */
 let pinnedFloat = false;
+/** 托盘/快捷键触发的临时悬浮，失焦后自动贴回桌面 */
 let temporaryFloat = false;
+/** 桌面附着失败时的延迟重试定时器 */
 let desktopAttachTimer: NodeJS.Timeout | undefined;
 
+/** 当前是否处于悬浮模式（手动置顶 或 临时显示） */
 const isFloating = (): boolean => pinnedFloat || temporaryFloat;
 
+/** 开发模式下 Vite 热更新地址；生产环境为 undefined，走 loadFile */
 const rendererUrl = process.env.ELECTRON_RENDERER_URL;
+/** 首选快捷键注册失败时依次尝试的备选组合 */
 const fallbackShortcuts = ["CommandOrControl+Alt+T", "CommandOrControl+Alt+N", "CommandOrControl+Shift+Space"];
+/** 无法从 exe 读取图标时，托盘使用的内联 SVG 占位图 */
 const fallbackTrayIconDataUrl =
   "data:image/svg+xml;charset=utf-8," +
   encodeURIComponent(
     `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#0284c7"/><path d="M9 16.5l4 4L23 10.5" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`
   );
 
+/**
+ * 加载渲染页面。四个窗口共用同一 index.html，通过 ?view= 区分组件。
+ * 开发：http://localhost:xxx?view=widget；生产：file://.../index.html?view=widget
+ */
 const loadRenderer = async (window: BrowserWindow, view: "widget" | "add" | "calendar" | "settings"): Promise<void> => {
   if (rendererUrl) {
     await window.loadURL(`${rendererUrl}?view=${view}`);
@@ -37,6 +66,10 @@ const loadRenderer = async (window: BrowserWindow, view: "widget" | "add" | "cal
   });
 };
 
+/**
+ * 将用户输入的快捷键字符串规范化为 Electron globalShortcut 格式。
+ * 例："ctrl+alt+t" → "CommandOrControl+Alt+T"
+ */
 const normalizeShortcut = (input: string): string => {
   const parts = input
     .trim()
@@ -57,6 +90,7 @@ const normalizeShortcut = (input: string): string => {
   return normalized.join("+");
 };
 
+/** 待办数据变更后，向所有已打开窗口推送最新快照，保持 UI 同步 */
 const broadcastSnapshot = (): void => {
   const snapshot = store.getSnapshot();
   for (const window of BrowserWindow.getAllWindows()) {
@@ -64,6 +98,7 @@ const broadcastSnapshot = (): void => {
   }
 };
 
+/** 设置变更后广播给所有窗口（快捷键、开机启动等） */
 const broadcastSettings = (): void => {
   const settings = store.getSettings();
   for (const window of BrowserWindow.getAllWindows()) {
@@ -71,6 +106,7 @@ const broadcastSettings = (): void => {
   }
 };
 
+/** 置顶状态切换后通知挂件 UI 更新 pin 按钮样式 */
 const broadcastFloatState = (): void => {
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send("widget:float-state-changed", pinnedFloat);
@@ -129,6 +165,7 @@ const returnWidgetToDesktop = async (): Promise<void> => {
   await applyWidgetDisplayMode();
 };
 
+/** 同步 Windows 登录项设置，与 todos.json 中的 launchAtLogin 保持一致 */
 const applyLoginSetting = (enabled: boolean): void => {
   app.setLoginItemSettings({
     openAtLogin: enabled,
@@ -195,6 +232,7 @@ const scheduleDesktopAttachRetries = (): void => {
   }, delays[0]);
 };
 
+/** 首次启动或无保存位置时，默认放在主屏工作区右上角 */
 const defaultWidgetBounds = (): WindowBounds => {
   const display = screen.getPrimaryDisplay().workArea;
   return {
@@ -205,6 +243,7 @@ const defaultWidgetBounds = (): WindowBounds => {
   };
 };
 
+/** 拖动/缩放挂件时防抖写入 widgetBounds，避免频繁写盘 */
 const persistWidgetBounds = (): void => {
   if (!widgetWindow) return;
 
@@ -215,6 +254,12 @@ const persistWidgetBounds = (): void => {
   }, 300);
 };
 
+/**
+ * 创建桌面挂件窗口。
+ * - 无边框 + 透明背景，配合 CSS 实现圆角卡片
+ * - blur 事件：临时悬浮模式下失焦 120ms 后贴回桌面
+ * - ready-to-show 后调用 applyWidgetDisplayMode 决定贴桌面或置顶
+ */
 const createWidgetWindow = async (): Promise<void> => {
   const bounds = store.getSettings().widgetBounds ?? defaultWidgetBounds();
 
@@ -259,6 +304,7 @@ const createWidgetWindow = async (): Promise<void> => {
   });
 };
 
+/** 创建或聚焦快捷添加窗口；失焦自动 hide，不销毁实例以便复用 */
 const createAddTodoWindow = async (): Promise<void> => {
   if (addTodoWindow) {
     addTodoWindow.show();
@@ -360,6 +406,7 @@ const createSettingsWindow = async (): Promise<void> => {
   settingsWindow.once("ready-to-show", () => settingsWindow?.show());
 };
 
+/** 设置写入 store 后广播，并返回最新 settings 供 IPC 响应 */
 const applySettings = (settings: ReturnType<TodoStore["getSettings"]>): ReturnType<TodoStore["getSettings"]> => {
   broadcastSettings();
   return settings;
@@ -430,6 +477,7 @@ const registerIpc = (): void => {
   ipcMain.handle("app:quit", () => app.quit());
 }
 
+/** 两类全局快捷键：唤起添加窗口 / 临时显示挂件 */
 type ShortcutKind = "quickAdd" | "showWidget";
 
 const getShortcutValue = (kind: ShortcutKind): string =>
@@ -453,6 +501,11 @@ const runShortcutAction = (kind: ShortcutKind): void => {
   void showWidgetOnCurrentPage();
 };
 
+/**
+ * 注册单个全局快捷键。
+ * - 首选组合被占用时依次尝试 fallbackShortcuts
+ * - 全部失败则保留原设置并返回 registered: false
+ */
 const registerShortcut = (kind: ShortcutKind, requestedShortcut?: string): ShortcutRegistrationResult => {
   const preferredShortcut = requestedShortcut ? normalizeShortcut(requestedShortcut) : getShortcutValue(kind);
   const shortcutCandidates = requestedShortcut
@@ -501,6 +554,10 @@ const registerGlobalShortcuts = (): void => {
   registerShortcut("showWidget");
 };
 
+/**
+ * 用户修改快捷键时调用。
+ * 先检查是否与另一类快捷键冲突，再 unregisterAll 后分别重注册两个快捷键。
+ */
 const updateShortcut = (kind: ShortcutKind, shortcut: string): ShortcutRegistrationResult => {
   const requestedShortcut = normalizeShortcut(shortcut);
   const otherKind = kind === "quickAdd" ? "showWidget" : "quickAdd";
@@ -520,6 +577,7 @@ const updateShortcut = (kind: ShortcutKind, shortcut: string): ShortcutRegistrat
   return result;
 };
 
+/** 创建系统托盘：左键临时显示挂件，右键菜单仅「退出」 */
 const createTray = (): void => {
   const appIcon = nativeImage.createFromPath(process.execPath);
   const trayIcon = appIcon.isEmpty() ? nativeImage.createFromDataURL(fallbackTrayIconDataUrl) : appIcon.resize({ width: 16, height: 16 });
@@ -551,6 +609,7 @@ const boot = async (): Promise<void> => {
 // 须在 requestSingleInstanceLock / TodoStore 之前执行，见 appPaths.ts
 configureUserDataPath();
 
+// 单实例锁：已有实例运行时，第二次启动会触发 second-instance 并聚焦挂件
 const gotLock = app.requestSingleInstanceLock();
 
 if (!gotLock) {

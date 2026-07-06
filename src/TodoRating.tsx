@@ -1,3 +1,9 @@
+/**
+ * 待办紧急评分组件（1–5 星）。
+ *
+ * 点击触发按钮展开下拉菜单选择评分；点击组件外部自动关闭。
+ * 评分影响 sortTodos 中的列表排序（高分优先）。
+ */
 import { useEffect, useRef, useState } from "react";
 import type React from "react";
 import { TODO_RATING_MAX, TODO_RATING_MIN } from "./types/todo";
@@ -17,6 +23,7 @@ export default function TodoRating({ rating, onChange }: TodoRatingProps): React
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
+  /** 菜单打开时监听全局 pointerdown，点击外部区域关闭 */
   useEffect(() => {
     if (!open) return;
 

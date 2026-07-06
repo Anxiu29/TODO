@@ -1,14 +1,23 @@
+/**
+ * 桌面挂件主界面（?view=widget）。
+ *
+ * 功能：今日待办列表、内联添加/编辑/完成/删除、紧急评分、
+ * 置顶切换、完成区预览、打开日历/设置/快捷添加窗口。
+ * 数据通过 window.todoApi 与主进程同步，并订阅 IPC 推送保持多窗口一致。
+ */
 import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import TodoRating from "./TodoRating";
 import type { AppSettings, Todo, TodoSnapshot } from "./types/todo";
 
+/** IPC 加载前的占位快照，避免首屏 undefined */
 const emptySnapshot: TodoSnapshot = {
   today: "",
   activeTodos: [],
   completedToday: []
 };
 
+/** 将 YYYY-MM-DD 格式化为中文日期，如「7月4日 星期六」 */
 const formatDate = (date: string): string => {
   if (!date) return "";
   return new Intl.DateTimeFormat("zh-CN", {
@@ -18,6 +27,7 @@ const formatDate = (date: string): string => {
   }).format(new Date(`${date}T00:00:00`));
 };
 
+/** Electron 加速器格式 → 用户可读，如 CommandOrControl+Alt+T → Ctrl + Alt + T */
 const formatShortcut = (shortcut?: string): string =>
   (shortcut ?? "CommandOrControl+Alt+T")
     .replace("CommandOrControl", "Ctrl")
@@ -25,6 +35,7 @@ const formatShortcut = (shortcut?: string): string =>
 
 type IconName = "calendar" | "minimize" | "pin" | "quit" | "settings";
 
+/** 标题栏与 footer 使用的 SVG 图标集合 */
 const Icon = ({ name }: { name: IconName }): React.ReactElement => {
   const paths: Record<IconName, React.ReactNode> = {
     calendar: (
@@ -66,13 +77,18 @@ const Icon = ({ name }: { name: IconName }): React.ReactElement => {
 export default function App(): React.ReactElement {
   const [snapshot, setSnapshot] = useState<TodoSnapshot>(emptySnapshot);
   const [newTitle, setNewTitle] = useState("");
+  /** 当前正在内联编辑的待办 id */
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
+  /** Escape 取消编辑时会触发 blur，此 ref 阻止 blur 误保存 */
   const skipBlurSaveRef = useRef(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  /** null=未知，true/false=最近一次桌面附着结果 */
   const [desktopAttached, setDesktopAttached] = useState<boolean | null>(null);
+  /** 是否处于「始终置顶」模式，与主进程 pinnedFloat 同步 */
   const [isFloatingOnPage, setIsFloatingOnPage] = useState(false);
 
+  /** 挂载时拉取初始数据，并订阅主进程推送；unmount 时取消全部监听 */
   useEffect(() => {
     void window.todoApi.getSnapshot().then(setSnapshot);
     void window.todoApi.getSettings().then(setSettings);

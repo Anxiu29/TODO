@@ -1,3 +1,9 @@
+/**
+ * 全局快捷键唤起的快捷添加窗口（?view=add）。
+ *
+ * 特点：失焦自动隐藏、Enter 提交后关闭、Escape 关闭、
+ * 再次按快捷键时通过 quick-add:focus 事件重新聚焦输入框。
+ */
 import { useEffect, useRef, useState } from "react";
 import type React from "react";
 
@@ -6,6 +12,7 @@ export default function AddTodoWindow(): React.ReactElement {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    /** 延迟到下一帧聚焦，确保窗口 show 后 DOM 已就绪 */
     const focusInput = (): void => {
       window.setTimeout(() => {
         inputRef.current?.focus();
