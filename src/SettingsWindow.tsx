@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type React from "react";
 import type { AppSettings } from "./types/todo";
+import type { AppVersionInfo, UpdateStatus } from "./types/update";
 
 const formatShortcut = (shortcut?: string): string =>
   (shortcut ?? "CommandOrControl+Alt+T")
@@ -43,12 +44,40 @@ const eventToShortcut = (event: React.KeyboardEvent<HTMLInputElement>): string =
   return parts.join("+");
 };
 
+const updateStatusMessage = (status: UpdateStatus, versionInfo: AppVersionInfo | null): string => {
+  switch (status.state) {
+    case "idle":
+      return versionInfo?.updateSupported ? "可检查 GitHub 上的新版本" : "开发模式下无法检查更新";
+    case "checking":
+      return "正在检查更新…";
+    case "available":
+      return `发现新版本 v${status.version}，正在下载…`;
+    case "not-available":
+      return "当前已是最新版本";
+    case "downloading":
+      return `正在下载更新… ${Math.round(status.percent)}%`;
+    case "downloaded":
+      return `新版本 v${status.version} 已下载，重启后安装`;
+    case "error":
+      return status.message;
+  }
+};
+
 export default function SettingsWindow(): React.ReactElement {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [shortcutDraft, setShortcutDraft] = useState("");
   const [showWidgetShortcutDraft, setShowWidgetShortcutDraft] = useState("");
   const [message, setMessage] = useState("点击输入框后按下任意组合键");
   const [showWidgetMessage, setShowWidgetMessage] = useState("点击输入框后按下任意组合键");
+  const [versionInfo, setVersionInfo] = useState<AppVersionInfo | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: "idle" });
+
+  useEffect(() => {
+    void window.todoApi.getAppVersion().then(setVersionInfo);
+    void window.todoApi.getUpdateStatus().then(setUpdateStatus);
+
+    return window.todoApi.onUpdateStatusChanged(setUpdateStatus);
+  }, []);
 
   useEffect(() => {
     void window.todoApi.getSettings().then((nextSettings) => {
@@ -98,6 +127,18 @@ export default function SettingsWindow(): React.ReactElement {
     const next = await window.todoApi.setLaunchAtLogin(enabled);
     setSettings(next);
   };
+
+  const handleCheckForUpdates = async (): Promise<void> => {
+    const status = await window.todoApi.checkForUpdates();
+    setUpdateStatus(status);
+  };
+
+  const handleQuitAndInstall = (): void => {
+    void window.todoApi.quitAndInstall();
+  };
+
+  const updateMessage = updateStatusMessage(updateStatus, versionInfo);
+  const isUpdateBusy = updateStatus.state === "checking" || updateStatus.state === "downloading";
 
   return (
     <main className="settings-window-shell">
@@ -163,6 +204,29 @@ export default function SettingsWindow(): React.ReactElement {
             onFocus={() => setShowWidgetMessage("正在录制，按下任意组合键")}
           />
           <p className="settings-message">{showWidgetMessage}</p>
+        </section>
+
+        <section className="settings-option vertical">
+          <div>
+            <strong>应用更新</strong>
+            <span>当前版本 v{versionInfo?.currentVersion ?? "…"}</span>
+          </div>
+          <p className="settings-message">{updateMessage}</p>
+          <div className="settings-actions">
+            <button
+              type="button"
+              className="settings-action-button"
+              disabled={!versionInfo?.updateSupported || isUpdateBusy}
+              onClick={() => void handleCheckForUpdates()}
+            >
+              {isUpdateBusy ? "请稍候…" : "检查更新"}
+            </button>
+            {updateStatus.state === "downloaded" ? (
+              <button type="button" className="settings-action-button primary" onClick={handleQuitAndInstall}>
+                立即重启安装
+              </button>
+            ) : null}
+          </div>
         </section>
       </section>
     </main>

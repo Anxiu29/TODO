@@ -10,10 +10,12 @@
     "build": "tsc --noEmit && electron-vite build",
     "preview": "electron-vite preview",
     "dist": "npm run build && electron-builder",
+    "dist:publish": "npm run build && electron-builder --publish always",
     "test": "vitest run",
     "diagnose:desktop": "node scripts/diagnose-desktop-attach.cjs"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "koffi": "^3.1.0",
     "lucide-react": "^1.23.0",
     "react": "latest",
@@ -52,6 +54,13 @@
         "nsis",
         "portable"
       ]
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Anda1231",
+        "repo": "TODO"
+      }
+    ]
   }
 }

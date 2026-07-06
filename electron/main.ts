@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { configureUserDataPath, getAppIconPath } from "./appPaths";
 import { attachWindowToDesktop, detachWindowFromDesktop } from "./desktop/attachToDesktop";
 import { TodoStore } from "./todoStore";
+import { checkForUpdates, getAppVersionInfo, getUpdateStatus, quitAndInstallUpdate, setupAutoUpdater } from "./updater";
 import type { ShortcutRegistrationResult, TodoDraft, TodoUpdate, WindowBounds } from "../src/types/todo";
 
 /** 桌面挂件窗口（无边框透明，可贴桌面或悬浮） */
@@ -478,6 +479,10 @@ const registerIpc = (): void => {
     widgetWindow?.hide();
   });
   ipcMain.handle("app:quit", () => app.quit());
+  ipcMain.handle("app:getVersion", () => getAppVersionInfo());
+  ipcMain.handle("app:getUpdateStatus", () => getUpdateStatus());
+  ipcMain.handle("app:checkForUpdates", () => checkForUpdates());
+  ipcMain.handle("app:quitAndInstall", () => quitAndInstallUpdate());
 }
 
 /** 两类全局快捷键：唤起添加窗口 / 临时显示挂件 */
@@ -606,6 +611,7 @@ const boot = async (): Promise<void> => {
   await createWidgetWindow();
   registerGlobalShortcuts();
   createTray();
+  setupAutoUpdater();
 };
 
 // 须在 requestSingleInstanceLock / TodoStore 之前执行，见 appPaths.ts

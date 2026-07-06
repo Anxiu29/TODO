@@ -6,6 +6,7 @@
  */
 import { contextBridge, ipcRenderer } from "electron";
 import type { AppSettings, ShortcutRegistrationResult, TodoCalendarDay, TodoDraft, TodoSnapshot, TodoUpdate } from "../src/types/todo";
+import type { AppVersionInfo, UpdateStatus } from "../src/types/update";
 
 /** 渲染进程可调用的 API，经 contextBridge 安全暴露给 window.todoApi */
 const api = {
@@ -40,6 +41,10 @@ const api = {
   toggleFloatOnPage: (): Promise<boolean> => ipcRenderer.invoke("widget:toggleFloatOnPage"),
   minimizeWidget: (): Promise<void> => ipcRenderer.invoke("widget:minimize"),
   quitApp: (): Promise<void> => ipcRenderer.invoke("app:quit"),
+  getAppVersion: (): Promise<AppVersionInfo> => ipcRenderer.invoke("app:getVersion"),
+  getUpdateStatus: (): Promise<UpdateStatus> => ipcRenderer.invoke("app:getUpdateStatus"),
+  checkForUpdates: (): Promise<UpdateStatus> => ipcRenderer.invoke("app:checkForUpdates"),
+  quitAndInstall: (): Promise<void> => ipcRenderer.invoke("app:quitAndInstall"),
 
   // ── 主进程 → 渲染进程 事件订阅 ─────────────────────────────
   /** 任意窗口修改待办后广播；返回取消订阅函数，组件 unmount 时必须调用 */
@@ -70,6 +75,11 @@ const api = {
     const listener = (): void => callback();
     ipcRenderer.on("quick-add:focus", listener);
     return () => ipcRenderer.removeListener("quick-add:focus", listener);
+  },
+  onUpdateStatusChanged: (callback: (status: UpdateStatus) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: UpdateStatus): void => callback(status);
+    ipcRenderer.on("update:status", listener);
+    return () => ipcRenderer.removeListener("update:status", listener);
   }
 };
 
