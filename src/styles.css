@@ -18,6 +18,11 @@ body {
   background: transparent;
 }
 
+body[data-view="settings"],
+body[data-view="calendar"] {
+  background: #f1f5f9;
+}
+
 button,
 input,
 select {
@@ -48,9 +53,7 @@ select {
 }
 
 .widget-card,
-.quick-add-card,
-.calendar-card,
-.settings-window-card {
+.quick-add-card {
   width: 100%;
   height: calc(100vh - 24px);
   border: 1px solid rgba(255, 255, 255, 0.55);
@@ -58,6 +61,16 @@ select {
   background: rgba(255, 255, 255, 0.78);
   box-shadow: 0 18px 60px rgba(15, 23, 42, 0.18);
   backdrop-filter: blur(22px);
+}
+
+.settings-window-card,
+.calendar-card {
+  width: 100%;
+  height: calc(100vh - 24px);
+  border: 1px solid #e2e8f0;
+  border-radius: 28px;
+  background: #ffffff;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
 }
 
 .widget-card {
@@ -372,80 +385,6 @@ h2 {
   padding-top: 12px;
 }
 
-.settings-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  border-top: 1px solid rgba(148, 163, 184, 0.28);
-  padding-top: 12px;
-}
-
-.settings-row {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: center;
-  gap: 10px;
-  color: #334155;
-  font-size: 12px;
-}
-
-.segmented-control,
-.shortcut-editor,
-.preset-row {
-  display: flex;
-  gap: 6px;
-}
-
-.segmented-control button,
-.shortcut-editor button,
-.preset-row button {
-  border: 0;
-  border-radius: 999px;
-  background: #e0f2fe;
-  color: #0369a1;
-  padding: 7px 10px;
-}
-
-.segmented-control button.selected {
-  background: #0284c7;
-  color: white;
-}
-
-.shortcut-setting {
-  grid-template-columns: 1fr;
-}
-
-.shortcut-editor {
-  display: grid;
-  grid-template-columns: 1fr auto;
-}
-
-.shortcut-editor input {
-  min-width: 0;
-  border: 1px solid #dbeafe;
-  border-radius: 999px;
-  outline: none;
-  padding: 8px 12px;
-}
-
-.shortcut-editor input:focus {
-  border-color: #38bdf8;
-  box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.18);
-}
-
-.preset-row {
-  flex-wrap: wrap;
-}
-
-.preset-row button {
-  font-size: 11px;
-  padding: 5px 8px;
-}
-
-.toggle-row input {
-  justify-self: end;
-}
-
 .completed-item {
   overflow: hidden;
   border: 0;
@@ -464,14 +403,6 @@ h2 {
   font-size: 12px;
 }
 
-.switch-row,
-.shortcut-row {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: #334155;
-}
-
 .quick-add-shell {
   padding: 10px;
 }
@@ -488,9 +419,9 @@ h2 {
   font-size: 18px;
 }
 
-.settings-window-shell {
-  min-height: 100vh;
-  background: #f8fafc;
+.settings-window-shell,
+.calendar-shell {
+  background: #f1f5f9;
 }
 
 .settings-window-card {
@@ -499,6 +430,7 @@ h2 {
   gap: 20px;
   height: calc(100vh - 24px);
   padding: 24px;
+  overflow-y: auto;
 }
 
 .settings-option {
@@ -575,46 +507,13 @@ h2 {
   cursor: not-allowed;
 }
 
-.display-mode-options {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 8px;
-}
-
-.display-mode-options button {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  border: 1px solid #dbeafe;
-  border-radius: 16px;
-  background: white;
-  color: #334155;
-  padding: 10px 12px;
-  text-align: left;
-}
-
-.display-mode-options button.selected {
-  border-color: #0284c7;
-  background: #e0f2fe;
-}
-
-.display-mode-options button span {
-  color: #64748b;
-  font-size: 12px;
-}
-
-.calendar-shell {
-  min-height: 100vh;
-  background: #f8fafc;
-}
-
 .calendar-card {
   display: flex;
   flex-direction: column;
   gap: 20px;
   height: calc(100vh - 24px);
   padding: 24px;
+  overflow: hidden;
 }
 
 .calendar-layout {

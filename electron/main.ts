@@ -321,9 +321,12 @@ const createAddTodoWindow = async (): Promise<void> => {
     x: Math.round(display.x + display.width / 2 - 210),
     y: Math.round(display.y + display.height / 2 - 89),
     frame: false,
+    transparent: true,
+    backgroundColor: "#00000000",
     resizable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
+    hasShadow: false,
     show: false,
     title: "添加代办",
     icon: getAppIconPath(),
@@ -362,6 +365,7 @@ const createCalendarWindow = async (): Promise<void> => {
     minHeight: 520,
     title: "完成日历",
     show: false,
+    backgroundColor: "#f1f5f9",
     icon: getAppIconPath(),
     webPreferences: {
       preload: join(__dirname, "../preload/preload.mjs"),
@@ -393,6 +397,7 @@ const createSettingsWindow = async (): Promise<void> => {
     minHeight: 520,
     title: "设置",
     show: false,
+    backgroundColor: "#f1f5f9",
     icon: getAppIconPath(),
     webPreferences: {
       preload: join(__dirname, "../preload/preload.mjs"),

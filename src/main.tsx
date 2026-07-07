@@ -17,6 +17,8 @@ import "./styles.css";
 
 const view = new URLSearchParams(window.location.search).get("view") ?? "widget";
 
+document.body.dataset.view = view;
+
 const View = (): React.ReactElement => {
   if (view === "add") return <AddTodoWindow />;
   if (view === "calendar") return <CalendarView />;
