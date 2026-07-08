@@ -4,17 +4,14 @@ import { dirname, join } from "node:path";
 import type { TodoDatabase } from "../src/types/todo";
 
 /**
- * 自定义 userData 目录，使待办数据与 exe 放在一起（绿色、可携带）。
+ * 配置 userData / todos.json 所在目录。
  *
- * 改动历程：
- * 1. 初版：安装版/便携版均使用 Electron 默认路径（%APPDATA%/Desktop Todo Widget/）。
- * 2. 第一次改：仅便携版改到 exe 旁 data/，通过 electron-builder 注入的
- *    PORTABLE_EXECUTABLE_DIR 定位用户放置 .exe 的目录（不能用 app.getPath("exe")，
- *    便携版实际进程从临时目录解压运行）。
- * 3. 第二次改：安装版也改到 exe 旁 data/，打包后统一用「应用目录/data/」；
- *    安装版用 dirname(app.getPath("exe")) 即可（NSIS 安装到固定目录）。
+ * - 便携版：exe 同目录 data/（绿色、可携带）
+ * - 安装版：Electron 默认 AppData（%APPDATA%/Desktop Todo Widget/）
+ *   安装版不能把数据放在安装目录：NSIS 升级会先卸载旧版并清空安装目录，
+ *   导致 {安装目录}/data/todos.json 被删掉（0.1.5 的已知问题）。
  *
- * 开发模式（npm run dev，app.isPackaged === false）保持默认 AppData，避免污染正式数据。
+ * 开发模式（npm run dev）保持默认 AppData，避免污染正式数据。
  *
  * 须在 app.ready 之前、TodoStore 等任何 getPath("userData") 调用之前执行。
  */
@@ -23,14 +20,19 @@ export const configureUserDataPath = (): void => {
     return;
   }
 
-  const legacyUserData = app.getPath("userData");
+  const portableDir = process.env.PORTABLE_EXECUTABLE_DIR;
+  if (portableDir) {
+    const appData = app.getPath("userData");
+    const portableUserData = join(portableDir, "data");
+    migrateLegacyTodos(appData, portableUserData);
+    app.setPath("userData", portableUserData);
+    return;
+  }
 
-  // 便携版：用户放 .exe 的文件夹；安装版：NSIS 安装目录
-  const appDir = process.env.PORTABLE_EXECUTABLE_DIR ?? dirname(app.getPath("exe"));
-  const newUserData = join(appDir, "data");
-
-  migrateLegacyTodos(legacyUserData, newUserData);
-  app.setPath("userData", newUserData);
+  // 安装版：保留 AppData；若 0.1.5 曾在安装目录写过 data/，迁移过来
+  const appData = app.getPath("userData");
+  const installDirData = join(dirname(app.getPath("exe")), "data");
+  migrateLegacyTodos(installDirData, appData);
 };
 
 const readTodosCount = (filePath: string): number => {
@@ -42,10 +44,7 @@ const readTodosCount = (filePath: string): number => {
   }
 };
 
-/**
- * 从旧版默认 AppData 目录迁移 todos.json。
- * 安装版在 0.1.5 起改到 exe 旁 data/，不迁移会导致更新后看起来像「数据丢失」。
- */
+/** 从旧路径迁移 todos.json（仅在新路径缺失或为空时复制，不覆盖已有数据）。 */
 export const migrateLegacyTodos = (legacyUserData: string, newUserData: string): void => {
   const legacyTodosPath = join(legacyUserData, "todos.json");
   const newTodosPath = join(newUserData, "todos.json");

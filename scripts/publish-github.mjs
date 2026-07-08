@@ -22,6 +22,7 @@ const files = [
   `Desktop-Todo-Widget-Setup-${version}.exe`,
   `Desktop-Todo-Widget-${version}.exe`,
   "latest.yml",
+  "portable.yml",
   `Desktop-Todo-Widget-Setup-${version}.exe.blockmap`
 ];
 
