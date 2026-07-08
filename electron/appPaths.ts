@@ -1,5 +1,7 @@
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { app } from "electron";
 import { dirname, join } from "node:path";
+import type { TodoDatabase } from "../src/types/todo";
 
 /**
  * 自定义 userData 目录，使待办数据与 exe 放在一起（绿色、可携带）。
@@ -21,9 +23,49 @@ export const configureUserDataPath = (): void => {
     return;
   }
 
+  const legacyUserData = app.getPath("userData");
+
   // 便携版：用户放 .exe 的文件夹；安装版：NSIS 安装目录
   const appDir = process.env.PORTABLE_EXECUTABLE_DIR ?? dirname(app.getPath("exe"));
-  app.setPath("userData", join(appDir, "data"));
+  const newUserData = join(appDir, "data");
+
+  migrateLegacyTodos(legacyUserData, newUserData);
+  app.setPath("userData", newUserData);
+};
+
+const readTodosCount = (filePath: string): number => {
+  try {
+    const parsed = JSON.parse(readFileSync(filePath, "utf8")) as TodoDatabase;
+    return Array.isArray(parsed.todos) ? parsed.todos.length : 0;
+  } catch {
+    return 0;
+  }
+};
+
+/**
+ * 从旧版默认 AppData 目录迁移 todos.json。
+ * 安装版在 0.1.5 起改到 exe 旁 data/，不迁移会导致更新后看起来像「数据丢失」。
+ */
+export const migrateLegacyTodos = (legacyUserData: string, newUserData: string): void => {
+  const legacyTodosPath = join(legacyUserData, "todos.json");
+  const newTodosPath = join(newUserData, "todos.json");
+
+  if (!existsSync(legacyTodosPath)) {
+    return;
+  }
+
+  const legacyCount = readTodosCount(legacyTodosPath);
+  if (legacyCount === 0) {
+    return;
+  }
+
+  const newCount = existsSync(newTodosPath) ? readTodosCount(newTodosPath) : 0;
+  if (newCount > 0) {
+    return;
+  }
+
+  mkdirSync(newUserData, { recursive: true });
+  copyFileSync(legacyTodosPath, newTodosPath);
 };
 
 /** 应用图标路径：开发读 build/icon.png，打包后读 extraResources 中的 icon.png */

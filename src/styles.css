@@ -227,7 +227,7 @@ h2 {
 .detail-item {
   display: grid;
   grid-template-columns: auto auto 1fr auto;
-  align-items: center;
+  align-items: start;
   gap: 10px;
   border-radius: 18px;
   background: rgba(248, 250, 252, 0.92);
@@ -249,9 +249,14 @@ h2 {
   background: transparent;
   color: inherit;
   font: inherit;
+  min-width: 0;
   text-align: left;
   padding: 0;
   cursor: pointer;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.4;
 }
 
 .todo-title-button:hover {
@@ -270,6 +275,7 @@ h2 {
 
 .todo-title-input {
   width: 100%;
+  min-width: 0;
   border: 1px solid #bae6fd;
   border-radius: 12px;
   background: white;
@@ -285,6 +291,7 @@ h2 {
 
 .todo-rating {
   position: relative;
+  margin-top: 1px;
 }
 
 .todo-rating-trigger,
@@ -349,6 +356,7 @@ h2 {
 .check-button {
   width: 20px;
   height: 20px;
+  margin-top: 2px;
   border: 2px solid #38bdf8;
   border-radius: 50%;
   background: white;
