@@ -39,8 +39,6 @@ let temporaryFloat = false;
 let desktopAttachTimer: NodeJS.Timeout | undefined;
 /** 启动/恢复后的多阶段稳定化定时器 */
 let desktopStabilizeTimers: NodeJS.Timeout[] = [];
-/** 运行中的低频桌面附着自检 */
-let desktopMaintenanceTimer: NodeJS.Timeout | undefined;
 /** 点击进入拖动准备后，如果没有真的移动，自动恢复桌面附着 */
 let dragAttachFallbackTimer: NodeJS.Timeout | undefined;
 /** 拖动前已从桌面脱离，待 moved 后重新附着 */
@@ -315,7 +313,7 @@ const scheduleDesktopAttachRetries = (): void => {
       return;
     }
 
-    const attached = await attachDesktopWidget({ activate: index <= 1 });
+    const attached = await attachDesktopWidget({ activate: false });
 
     if (attached) {
       return;
@@ -345,35 +343,23 @@ const clearDesktopStabilization = (): void => {
   desktopStabilizeTimers = [];
 };
 
-/** 启动/恢复后多轮确认桌面附着，覆盖 Explorer 慢启动或 WorkerW 晚创建的机器。 */
+/** 启动/恢复后少量静默确认桌面附着，避免 Explorer 慢启动时必须手动唤醒。 */
 const scheduleDesktopStabilization = (): void => {
   clearDesktopStabilization();
   if (!widgetWindow || isFloating() || !isDesktopDisplayMode()) {
     return;
   }
 
-  const delays = [300, 1000, 2500, 5000, 9000, 15000, 25000];
-  desktopStabilizeTimers = delays.map((delay, index) =>
+  const delays = [1000, 5000];
+  desktopStabilizeTimers = delays.map((delay) =>
     setTimeout(() => {
       if (!widgetWindow || isFloating() || !isDesktopDisplayMode()) {
         return;
       }
 
-      void attachDesktopWidget({ activate: index < 3 });
+      void attachDesktopWidget({ activate: false });
     }, delay)
   );
-};
-
-/** 低频自检桌面附着，处理 Explorer 重启、显示器变化后窗口脱离的情况。 */
-const startDesktopMaintenance = (): void => {
-  clearInterval(desktopMaintenanceTimer);
-  desktopMaintenanceTimer = setInterval(() => {
-    if (!widgetWindow || isFloating() || !isDesktopDisplayMode()) {
-      return;
-    }
-
-    void attachDesktopWidget({ activate: false });
-  }, 60_000);
 };
 
 /** 首次启动或无保存位置时，默认放在主屏工作区右上角 */
@@ -880,8 +866,6 @@ const createTray = (): void => {
 };
 
 const setupDesktopStabilityHooks = (): void => {
-  startDesktopMaintenance();
-
   powerMonitor.on("resume", scheduleDesktopStabilization);
   powerMonitor.on("unlock-screen", scheduleDesktopStabilization);
   screen.on("display-added", scheduleDesktopStabilization);
@@ -930,7 +914,6 @@ app.on("will-quit", () => {
   clearTimeout(desktopAttachTimer);
   clearTimeout(dragAttachFallbackTimer);
   clearDesktopStabilization();
-  clearInterval(desktopMaintenanceTimer);
   globalShortcut.unregisterAll();
 });
 
