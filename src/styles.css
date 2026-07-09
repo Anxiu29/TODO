@@ -579,6 +579,22 @@ h2 {
   cursor: pointer;
 }
 
+.settings-select {
+  min-width: 148px;
+  border: 1px solid #dbeafe;
+  border-radius: 14px;
+  background: #f0f9ff;
+  color: #0369a1;
+  outline: none;
+  padding: 9px 12px;
+  cursor: pointer;
+}
+
+.settings-select:focus {
+  border-color: #38bdf8;
+  box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.18);
+}
+
 .shortcut-capture {
   width: 100%;
   border: 1px solid #dbeafe;

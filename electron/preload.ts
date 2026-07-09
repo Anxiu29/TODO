@@ -5,7 +5,7 @@
  * 所有跨进程通信均走 ipcRenderer.invoke / ipcRenderer.on，通道名与 main.ts 中 ipcMain.handle 一一对应。
  */
 import { contextBridge, ipcRenderer } from "electron";
-import type { AppSettings, ShortcutRegistrationResult, TodoCalendarDay, TodoDraft, TodoSnapshot, TodoUpdate } from "../src/types/todo";
+import type { AppSettings, ShortcutRegistrationResult, TodoCalendarDay, TodoDraft, TodoSnapshot, TodoUpdate, WidgetDisplayMode } from "../src/types/todo";
 import type { AppVersionInfo, UpdateStatus } from "../src/types/update";
 
 /** 渲染进程可调用的 API，经 contextBridge 安全暴露给 window.todoApi */
@@ -27,6 +27,8 @@ const api = {
   // ── 应用设置 ──────────────────────────────────────────────
   getSettings: (): Promise<AppSettings> => ipcRenderer.invoke("settings:get"),
   setLaunchAtLogin: (enabled: boolean): Promise<AppSettings> => ipcRenderer.invoke("settings:setLaunchAtLogin", enabled),
+  setDisplayMode: (displayMode: WidgetDisplayMode): Promise<AppSettings> =>
+    ipcRenderer.invoke("settings:setDisplayMode", displayMode),
   setShortcut: (shortcut: string): Promise<ShortcutRegistrationResult> => ipcRenderer.invoke("settings:setShortcut", shortcut),
   setShowWidgetShortcut: (shortcut: string): Promise<ShortcutRegistrationResult> =>
     ipcRenderer.invoke("settings:setShowWidgetShortcut", shortcut),
@@ -37,6 +39,7 @@ const api = {
   openSettings: (): Promise<void> => ipcRenderer.invoke("windows:openSettings"),
   /** 隐藏当前窗口（快捷添加窗口 blur 时也走此通道） */
   closeCurrentWindow: (): Promise<void> => ipcRenderer.invoke("windows:closeCurrent"),
+  wakeWidget: (): Promise<void> => ipcRenderer.invoke("widget:wake"),
   prepareWidgetDrag: (): Promise<void> => ipcRenderer.invoke("widget:prepareDrag"),
   getFloatOnPage: (): Promise<boolean> => ipcRenderer.invoke("widget:getFloatOnPage"),
   toggleFloatOnPage: (): Promise<boolean> => ipcRenderer.invoke("widget:toggleFloatOnPage"),

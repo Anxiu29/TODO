@@ -30,6 +30,8 @@ const SetParent = user32.func("HWND __stdcall SetParent(HWND hWndChild, HWND hWn
 const ShowWindow = user32.func("int __stdcall ShowWindow(HWND hWnd, int nCmdShow)");
 /** SetParent 失败时读取 Win32 错误码 */
 const GetLastError = kernel32.func("uint32 __stdcall GetLastError()");
+/** SetParent 前清空旧错误码，避免成功调用被之前 API 的错误误判为失败 */
+const SetLastError = kernel32.func("void __stdcall SetLastError(uint32 dwErrCode)");
 /** 带超时的 SendMessage，避免 Explorer 无响应时阻塞主进程 */
 const SendMessageTimeoutW = user32.func(
   "uintptr_t __stdcall SendMessageTimeoutW(HWND hWnd, uint32 Msg, uintptr_t wParam, intptr_t lParam, uint32 fuFlags, uint32 uTimeout, _Out_ uintptr_t *lpdwResult)"
@@ -52,7 +54,7 @@ const readHwnd = (window: BrowserWindow): Hwnd => {
  * 1. 找到 Progman 窗口
  * 2. 发送 WM_SPAWN_WORKER 确保 WorkerW 存在
  * 3. 遍历所有 WorkerW，找到内含 SHELLDLL_DefView（桌面图标视图）的那个
- * 4. 返回其 sibling WorkerW；找不到则返回 null（不再回退到 Progman，避免可见但无法点击）
+ * 4. 优先返回其 sibling WorkerW；找不到 sibling 时回退到 Progman，兼容部分 Explorer 桌面层结构
  */
 const findDesktopWorkerW = (): Hwnd => {
   const progman = FindWindowW("Progman", null);
@@ -80,7 +82,7 @@ const findDesktopWorkerW = (): Hwnd => {
     }
   }
 
-  return workerw;
+  return workerw || progman;
 };
 
 /** 将窗口从桌面 WorkerW 恢复为普通顶层窗口（切换悬浮模式前必须调用） */
@@ -118,6 +120,7 @@ export const attachWindowToDesktop = async (window: BrowserWindow): Promise<bool
       return false;
     }
 
+    SetLastError(0);
     const previousParent = SetParent(targetHwnd, workerw);
     const lastError = GetLastError();
     if (!previousParent && lastError !== 0) {

@@ -58,8 +58,8 @@ export type TodoUpdate = {
   title: string;
 };
 
-/** 挂件显示模式：desktop=贴桌面，float=悬浮置顶（历史字段，现由 pinnedFloat 运行时控制） */
-export type WidgetDisplayMode = "desktop" | "float";
+/** 挂件基础显示模式：normal=普通窗口，desktop=贴到 Windows 桌面层（Win+D 后仍显示） */
+export type WidgetDisplayMode = "normal" | "desktop";
 
 /** 用户偏好设置，持久化在 todos.json 的 settings 对象中 */
 export type AppSettings = {

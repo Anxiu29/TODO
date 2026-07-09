@@ -86,6 +86,7 @@ export default function App(): React.ReactElement {
     if (snapshot.activeTodos.length === 0) return "今天没有待办";
     return `还有 ${snapshot.activeTodos.length} 件待办`;
   }, [snapshot.activeTodos.length]);
+  const unpinLabel = settings?.displayMode === "desktop" ? "取消置顶，回到桌面固定" : "取消置顶，回到普通窗口";
 
   const addTodo = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
@@ -129,14 +130,36 @@ export default function App(): React.ReactElement {
     void saveEdit();
   };
 
+  const handleWidgetMouseDown = (event: React.MouseEvent<HTMLElement>): void => {
+    const target = event.target;
+    if (!(target instanceof Element)) {
+      return;
+    }
+
+    if (target.closest(".no-drag, button, input, select, textarea")) {
+      return;
+    }
+
+    void window.todoApi.prepareWidgetDrag();
+  };
+
+  const wakeWidget = (): void => {
+    void window.todoApi.wakeWidget();
+  };
+
+  const openCalendar = (): void => {
+    wakeWidget();
+    window.setTimeout(() => void window.todoApi.openCalendar(), 0);
+  };
+
+  const openSettings = (): void => {
+    wakeWidget();
+    window.setTimeout(() => void window.todoApi.openSettings(), 0);
+  };
+
   return (
     <main className="widget-shell">
-      <section
-        className="widget-card"
-        onMouseDown={() => {
-          void window.todoApi.prepareWidgetDrag();
-        }}
-      >
+      <section className="widget-card" onMouseEnter={wakeWidget} onMouseDown={handleWidgetMouseDown}>
         <header className="widget-header">
           <div>
             <p className="eyebrow">{formatDate(snapshot.today)}</p>
@@ -146,8 +169,8 @@ export default function App(): React.ReactElement {
             <button
               className={`icon-button${isFloatingOnPage ? " active" : ""}`}
               type="button"
-              title={isFloatingOnPage ? "取消置顶，回到桌面" : "始终悬浮在任何页面上"}
-              aria-label={isFloatingOnPage ? "取消置顶，回到桌面" : "始终悬浮在任何页面上"}
+              title={isFloatingOnPage ? unpinLabel : "始终悬浮在任何页面上"}
+              aria-label={isFloatingOnPage ? unpinLabel : "始终悬浮在任何页面上"}
               aria-pressed={isFloatingOnPage}
               onClick={() => {
                 void window.todoApi.toggleFloatOnPage().then(setIsFloatingOnPage);
@@ -261,7 +284,14 @@ export default function App(): React.ReactElement {
 
         <footer className="widget-footer no-drag">
           <div className="footer-actions">
-            <button className="icon-button" type="button" title="完成日历" aria-label="完成日历" onClick={() => window.todoApi.openCalendar()}>
+            <button
+              className="icon-button"
+              type="button"
+              title="完成日历"
+              aria-label="完成日历"
+              onMouseDown={wakeWidget}
+              onClick={openCalendar}
+            >
               <Icon name="calendar" />
             </button>
             <button
@@ -269,7 +299,8 @@ export default function App(): React.ReactElement {
               type="button"
               title="设置"
               aria-label="设置"
-              onClick={() => window.todoApi.openSettings()}
+              onMouseDown={wakeWidget}
+              onClick={openSettings}
             >
               <Icon name="settings" />
             </button>

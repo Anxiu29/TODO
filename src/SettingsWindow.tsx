@@ -7,7 +7,7 @@
 import { X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type React from "react";
-import type { AppSettings } from "./types/todo";
+import type { AppSettings, WidgetDisplayMode } from "./types/todo";
 import type { AppVersionInfo, UpdateStatus } from "./types/update";
 
 const formatShortcut = (shortcut?: string, fallback = "CommandOrControl+2"): string =>
@@ -129,6 +129,11 @@ export default function SettingsWindow(): React.ReactElement {
     setSettings(next);
   };
 
+  const updateDisplayMode = async (displayMode: WidgetDisplayMode): Promise<void> => {
+    const next = await window.todoApi.setDisplayMode(displayMode);
+    setSettings(next);
+  };
+
   const handleCheckForUpdates = async (): Promise<void> => {
     const status = await window.todoApi.checkForUpdates();
     setUpdateStatus(status);
@@ -175,6 +180,21 @@ export default function SettingsWindow(): React.ReactElement {
                 checked={settings?.launchAtLogin ?? false}
                 onChange={(event) => updateLaunchAtLogin(event.target.checked)}
               />
+            </label>
+            <label className="settings-option">
+              <div>
+                <strong>组件显示方式</strong>
+                <span>默认普通窗口；固定在桌面上时，按 Win+D 仍会显示。</span>
+              </div>
+              <select
+                className="settings-select"
+                value={settings?.displayMode ?? "normal"}
+                disabled={!settings}
+                onChange={(event) => void updateDisplayMode(event.target.value as WidgetDisplayMode)}
+              >
+                <option value="normal">普通组件</option>
+                <option value="desktop">固定在桌面上</option>
+              </select>
             </label>
           </section>
 

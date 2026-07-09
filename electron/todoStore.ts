@@ -12,7 +12,7 @@ import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { app } from "electron";
 import { buildTodoSnapshot, getCalendarForMonth, refreshDatabaseForDate, todayKey, updateTodoTitle } from "../src/data/todoStore";
-import type { TodoCalendarDay, TodoDatabase, TodoDraft, TodoSnapshot, TodoUpdate } from "../src/types/todo";
+import type { TodoCalendarDay, TodoDatabase, TodoDraft, TodoSnapshot, TodoUpdate, WidgetDisplayMode } from "../src/types/todo";
 
 const nowIso = (): string => new Date().toISOString();
 
@@ -22,12 +22,15 @@ export const createEmptyDatabase = (date = todayKey()): TodoDatabase => ({
   lastRefreshDate: date,
   todos: [],
   settings: {
-    displayMode: "desktop",
+    displayMode: "normal",
     launchAtLogin: false,
     shortcut: "CommandOrControl+2",
     showWidgetShortcut: "CommandOrControl+1"
   }
 });
+
+const normalizeDisplayMode = (displayMode: unknown): WidgetDisplayMode =>
+  displayMode === "desktop" ? "desktop" : "normal";
 
 /**
  * 主进程待办存储：唯一读写磁盘的位置，所有 UI 变更经 IPC 调用此类方法。
@@ -187,7 +190,8 @@ export class TodoStore {
         ...parsed,
         settings: {
           ...createEmptyDatabase().settings,
-          ...parsed.settings
+          ...parsed.settings,
+          displayMode: normalizeDisplayMode(parsed.settings?.displayMode)
         },
         todos: Array.isArray(parsed.todos)
           ? parsed.todos.map((todo) => ({
