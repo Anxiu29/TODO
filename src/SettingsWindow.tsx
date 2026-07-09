@@ -4,13 +4,14 @@
  * 支持：开机自启、录制全局快捷键（快速添加 / 显示组件）。
  * 快捷键通过 input onKeyDown 捕获键盘事件，转换为 Electron Accelerator 格式后 IPC 注册。
  */
+import { X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type React from "react";
 import type { AppSettings } from "./types/todo";
 import type { AppVersionInfo, UpdateStatus } from "./types/update";
 
-const formatShortcut = (shortcut?: string): string =>
-  (shortcut ?? "CommandOrControl+Alt+T")
+const formatShortcut = (shortcut?: string, fallback = "CommandOrControl+2"): string =>
+  (shortcut ?? fallback)
     .replace("CommandOrControl", "Ctrl")
     .replace(/\+/g, " + ");
 
@@ -93,9 +94,9 @@ export default function SettingsWindow(): React.ReactElement {
     });
   }, []);
 
-  const shortcutLabel = useMemo(() => formatShortcut(shortcutDraft || settings?.shortcut), [settings?.shortcut, shortcutDraft]);
+  const shortcutLabel = useMemo(() => formatShortcut(shortcutDraft || settings?.shortcut, "CommandOrControl+2"), [settings?.shortcut, shortcutDraft]);
   const showWidgetShortcutLabel = useMemo(
-    () => formatShortcut(showWidgetShortcutDraft || settings?.showWidgetShortcut),
+    () => formatShortcut(showWidgetShortcutDraft || settings?.showWidgetShortcut, "CommandOrControl+1"),
     [settings?.showWidgetShortcut, showWidgetShortcutDraft]
   );
 
@@ -148,86 +149,108 @@ export default function SettingsWindow(): React.ReactElement {
             <p className="eyebrow">设置</p>
             <h1>偏好设置</h1>
           </div>
+          <div className="header-actions no-drag">
+            <button
+              className="icon-button danger-button"
+              type="button"
+              title="关闭"
+              aria-label="关闭"
+              onClick={() => window.todoApi.closeCurrentWindow()}
+            >
+              <X aria-hidden className="button-icon" strokeWidth={2} />
+            </button>
+          </div>
         </header>
 
-        <label className="settings-option">
-          <div>
-            <strong>开机自动启动</strong>
-            <span>登录 Windows 后自动启动桌面代办。</span>
-          </div>
-          <input
-            type="checkbox"
-            checked={settings?.launchAtLogin ?? false}
-            onChange={(event) => updateLaunchAtLogin(event.target.checked)}
-          />
-        </label>
+        <div className="settings-content no-drag">
+          <section className="settings-section">
+            <h2 className="settings-section-title">常规</h2>
+            <label className="settings-option">
+              <div>
+                <strong>开机自动启动</strong>
+                <span>登录 Windows 后自动启动桌面代办。</span>
+              </div>
+              <input
+                type="checkbox"
+                checked={settings?.launchAtLogin ?? false}
+                onChange={(event) => updateLaunchAtLogin(event.target.checked)}
+              />
+            </label>
+          </section>
 
-        <section className="settings-option vertical">
-          <div>
-            <strong>快速添加快捷键</strong>
-            <span>点击输入框后直接按下想要的组合键。</span>
-          </div>
-          <input
-            className="shortcut-capture"
-            value={shortcutLabel}
-            readOnly
-            onKeyDown={(event) => {
-              event.preventDefault();
-              const shortcut = eventToShortcut(event);
-              if (shortcut) {
-                setShortcutDraft(shortcut);
-                void updateShortcut(shortcut);
-              }
-            }}
-            onFocus={() => setMessage("正在录制，按下任意组合键")}
-          />
-          <p className="settings-message">{message}</p>
-        </section>
+          <section className="settings-section">
+            <h2 className="settings-section-title">快捷键</h2>
+            <section className="settings-option vertical">
+              <div>
+                <strong>快速添加快捷键</strong>
+                <span>点击输入框后直接按下想要的组合键。</span>
+              </div>
+              <input
+                className="shortcut-capture"
+                value={shortcutLabel}
+                readOnly
+                onKeyDown={(event) => {
+                  event.preventDefault();
+                  const shortcut = eventToShortcut(event);
+                  if (shortcut) {
+                    setShortcutDraft(shortcut);
+                    void updateShortcut(shortcut);
+                  }
+                }}
+                onFocus={() => setMessage("正在录制，按下任意组合键")}
+              />
+              <p className="settings-message">{message}</p>
+            </section>
 
-        <section className="settings-option vertical">
-          <div>
-            <strong>显示组件快捷键</strong>
-            <span>点击输入框后按下快捷键，用来临时显示组件。</span>
-          </div>
-          <input
-            className="shortcut-capture"
-            value={showWidgetShortcutLabel}
-            readOnly
-            onKeyDown={(event) => {
-              event.preventDefault();
-              const shortcut = eventToShortcut(event);
-              if (shortcut) {
-                setShowWidgetShortcutDraft(shortcut);
-                void updateShowWidgetShortcut(shortcut);
-              }
-            }}
-            onFocus={() => setShowWidgetMessage("正在录制，按下任意组合键")}
-          />
-          <p className="settings-message">{showWidgetMessage}</p>
-        </section>
+            <section className="settings-option vertical">
+              <div>
+                <strong>显示组件快捷键</strong>
+                <span>点击输入框后按下快捷键，用来临时显示组件。</span>
+              </div>
+              <input
+                className="shortcut-capture"
+                value={showWidgetShortcutLabel}
+                readOnly
+                onKeyDown={(event) => {
+                  event.preventDefault();
+                  const shortcut = eventToShortcut(event);
+                  if (shortcut) {
+                    setShowWidgetShortcutDraft(shortcut);
+                    void updateShowWidgetShortcut(shortcut);
+                  }
+                }}
+                onFocus={() => setShowWidgetMessage("正在录制，按下任意组合键")}
+              />
+              <p className="settings-message">{showWidgetMessage}</p>
+            </section>
+          </section>
 
-        <section className="settings-option vertical">
-          <div>
-            <strong>应用更新</strong>
-            <span>当前版本 v{versionInfo?.currentVersion ?? "…"}</span>
-          </div>
-          <p className="settings-message">{updateMessage}</p>
-          <div className="settings-actions">
-            <button
-              type="button"
-              className="settings-action-button"
-              disabled={!versionInfo?.updateSupported || isUpdateBusy}
-              onClick={() => void handleCheckForUpdates()}
-            >
-              {isUpdateBusy ? "请稍候…" : "检查更新"}
-            </button>
-            {updateStatus.state === "downloaded" ? (
-              <button type="button" className="settings-action-button primary" onClick={handleQuitAndInstall}>
-                立即重启安装
-              </button>
-            ) : null}
-          </div>
-        </section>
+          <section className="settings-section">
+            <h2 className="settings-section-title">更新</h2>
+            <section className="settings-option vertical">
+              <div>
+                <strong>应用更新</strong>
+                <span>当前版本 v{versionInfo?.currentVersion ?? "…"}</span>
+              </div>
+              <p className="settings-message">{updateMessage}</p>
+              <div className="settings-actions">
+                <button
+                  type="button"
+                  className="settings-action-button"
+                  disabled={!versionInfo?.updateSupported || isUpdateBusy}
+                  onClick={() => void handleCheckForUpdates()}
+                >
+                  {isUpdateBusy ? "请稍候…" : "检查更新"}
+                </button>
+                {updateStatus.state === "downloaded" ? (
+                  <button type="button" className="settings-action-button primary" onClick={handleQuitAndInstall}>
+                    立即重启安装
+                  </button>
+                ) : null}
+              </div>
+            </section>
+          </section>
+        </div>
       </section>
     </main>
   );

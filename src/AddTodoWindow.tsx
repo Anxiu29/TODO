@@ -49,7 +49,7 @@ export default function AddTodoWindow(): React.ReactElement {
   return (
     <main className="quick-add-shell">
       <form className="quick-add-card" onSubmit={submit}>
-        <header className="quick-add-header draggable">
+        <header className="quick-add-header">
           <div>
             <p className="eyebrow">快捷添加</p>
             <h1>新的待办事项</h1>

@@ -37,6 +37,8 @@ let pinnedFloat = false;
 let temporaryFloat = false;
 /** 桌面附着失败时的延迟重试定时器 */
 let desktopAttachTimer: NodeJS.Timeout | undefined;
+/** 拖动前已从桌面脱离，待 moved 后重新附着 */
+let widgetDragDetached = false;
 
 /** 当前是否处于悬浮模式（手动置顶 或 临时显示） */
 const isFloating = (): boolean => pinnedFloat || temporaryFloat;
@@ -44,7 +46,7 @@ const isFloating = (): boolean => pinnedFloat || temporaryFloat;
 /** 开发模式下 Vite 热更新地址；生产环境为 undefined，走 loadFile */
 const rendererUrl = process.env.ELECTRON_RENDERER_URL;
 /** 首选快捷键注册失败时依次尝试的备选组合 */
-const fallbackShortcuts = ["CommandOrControl+Alt+T", "CommandOrControl+Alt+N", "CommandOrControl+Shift+Space"];
+const fallbackShortcuts = ["CommandOrControl+2", "CommandOrControl+Alt+T", "CommandOrControl+Alt+N"];
 
 const loadAppIcon = () => {
   const icon = nativeImage.createFromPath(getAppIconPath());
@@ -199,7 +201,24 @@ const applyWidgetDisplayMode = async (): Promise<void> => {
   const attached = await attachWindowToDesktop(widgetWindow);
   widgetWindow.showInactive();
   widgetWindow.webContents.send("desktop-attach:result", attached);
+
+  if (!attached) {
+    detachWindowFromDesktop(widgetWindow);
+    widgetWindow.show();
+    widgetWindow.moveTop();
+    return;
+  }
+
   scheduleDesktopAttachRetries();
+};
+
+/** 确保挂件创建后一定会显示（部分机器上 ready-to-show 可能不触发） */
+const revealWidgetWindow = (): void => {
+  if (!widgetWindow) return;
+
+  const bounds = getWidgetBounds();
+  widgetWindow.setBounds(bounds);
+  void applyWidgetDisplayMode();
 };
 
 /** 桌面附着可能因 Explorer 未就绪失败，延迟重试数次。 */
@@ -209,7 +228,7 @@ const scheduleDesktopAttachRetries = (): void => {
     return;
   }
 
-  const delays = [150, 600, 1500];
+  const delays = [150, 600, 1500, 3000, 5000];
   const retry = async (index: number): Promise<void> => {
     if (!widgetWindow || isFloating()) {
       return;
@@ -220,11 +239,20 @@ const scheduleDesktopAttachRetries = (): void => {
     widgetWindow.showInactive();
     widgetWindow.webContents.send("desktop-attach:result", attached);
 
+    if (attached) {
+      return;
+    }
+
     if (index + 1 < delays.length) {
       desktopAttachTimer = setTimeout(() => {
         void retry(index + 1);
       }, delays[index + 1]);
+      return;
     }
+
+    detachWindowFromDesktop(widgetWindow);
+    widgetWindow.show();
+    widgetWindow.moveTop();
   };
 
   desktopAttachTimer = setTimeout(() => {
@@ -241,6 +269,23 @@ const defaultWidgetBounds = (): WindowBounds => {
     width: 320,
     height: 460
   };
+};
+
+/** 将保存的窗口位置限制在当前可见屏幕内，避免换电脑后跑到屏幕外 */
+const clampWidgetBounds = (bounds: WindowBounds): WindowBounds => {
+  const display = screen.getDisplayNearestPoint({ x: bounds.x, y: bounds.y });
+  const area = display.workArea;
+  const width = Math.min(Math.max(bounds.width, 280), area.width);
+  const height = Math.min(Math.max(bounds.height, 360), area.height);
+  const x = Math.min(Math.max(bounds.x, area.x), area.x + area.width - width);
+  const y = Math.min(Math.max(bounds.y, area.y), area.y + area.height - height);
+
+  return { x, y, width, height };
+};
+
+const getWidgetBounds = (): WindowBounds => {
+  const saved = store.getSettings().widgetBounds;
+  return clampWidgetBounds(saved ?? defaultWidgetBounds());
 };
 
 /** 拖动/缩放挂件时防抖写入 widgetBounds，避免频繁写盘 */
@@ -261,7 +306,7 @@ const persistWidgetBounds = (): void => {
  * - ready-to-show 后调用 applyWidgetDisplayMode 决定贴桌面或置顶
  */
 const createWidgetWindow = async (): Promise<void> => {
-  const bounds = store.getSettings().widgetBounds ?? defaultWidgetBounds();
+  const bounds = getWidgetBounds();
 
   widgetWindow = new BrowserWindow({
     ...bounds,
@@ -271,6 +316,7 @@ const createWidgetWindow = async (): Promise<void> => {
     transparent: true,
     backgroundColor: "#00000000",
     hasShadow: false,
+    thickFrame: false,
     resizable: true,
     skipTaskbar: !isFloating(),
     show: false,
@@ -285,6 +331,18 @@ const createWidgetWindow = async (): Promise<void> => {
   });
 
   widgetWindow.on("move", persistWidgetBounds);
+  widgetWindow.on("moved", () => {
+    if (!widgetWindow || isFloating() || !widgetDragDetached) {
+      return;
+    }
+
+    widgetDragDetached = false;
+    void (async () => {
+      const attached = await attachWindowToDesktop(widgetWindow!);
+      widgetWindow!.showInactive();
+      widgetWindow!.webContents.send("desktop-attach:result", attached);
+    })();
+  });
   widgetWindow.on("resize", persistWidgetBounds);
   widgetWindow.on("blur", () => {
     if (pinnedFloat || !temporaryFloat) {
@@ -299,10 +357,19 @@ const createWidgetWindow = async (): Promise<void> => {
     widgetWindow = null;
   });
 
+  let revealed = false;
+  const revealOnce = (): void => {
+    if (revealed || !widgetWindow) return;
+    revealed = true;
+    revealWidgetWindow();
+  };
+
+  widgetWindow.once("ready-to-show", revealOnce);
+  widgetWindow.webContents.once("did-finish-load", revealOnce);
+
   await loadRenderer(widgetWindow, "widget");
-  widgetWindow.once("ready-to-show", async () => {
-    await applyWidgetDisplayMode();
-  });
+
+  setTimeout(revealOnce, 1500);
 };
 
 /** 创建或聚焦快捷添加窗口；失焦自动 hide，不销毁实例以便复用 */
@@ -363,9 +430,13 @@ const createCalendarWindow = async (): Promise<void> => {
     height: 640,
     minWidth: 620,
     minHeight: 520,
+    frame: false,
+    transparent: true,
+    backgroundColor: "#00000000",
+    hasShadow: false,
+    thickFrame: false,
     title: "完成日历",
     show: false,
-    backgroundColor: "#f1f5f9",
     icon: getAppIconPath(),
     webPreferences: {
       preload: join(__dirname, "../preload/preload.mjs"),
@@ -395,9 +466,13 @@ const createSettingsWindow = async (): Promise<void> => {
     height: 640,
     minWidth: 420,
     minHeight: 520,
+    frame: false,
+    transparent: true,
+    backgroundColor: "#00000000",
+    hasShadow: false,
+    thickFrame: false,
     title: "设置",
     show: false,
-    backgroundColor: "#f1f5f9",
     icon: getAppIconPath(),
     webPreferences: {
       preload: join(__dirname, "../preload/preload.mjs"),
@@ -479,6 +554,14 @@ const registerIpc = (): void => {
     }
 
     return pinnedFloat;
+  });
+  ipcMain.handle("widget:prepareDrag", () => {
+    if (!widgetWindow || isFloating()) {
+      return;
+    }
+
+    detachWindowFromDesktop(widgetWindow);
+    widgetDragDetached = true;
   });
   ipcMain.handle("widget:minimize", () => {
     widgetWindow?.hide();

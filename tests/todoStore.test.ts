@@ -8,8 +8,8 @@ const database: TodoDatabase = {
   settings: {
     displayMode: "desktop",
     launchAtLogin: false,
-    shortcut: "CommandOrControl+Alt+T",
-    showWidgetShortcut: "CommandOrControl+Alt+W"
+    shortcut: "CommandOrControl+2",
+    showWidgetShortcut: "CommandOrControl+1"
   },
   todos: [
     {

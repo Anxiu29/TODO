@@ -52,7 +52,7 @@ const readHwnd = (window: BrowserWindow): Hwnd => {
  * 1. 找到 Progman 窗口
  * 2. 发送 WM_SPAWN_WORKER 确保 WorkerW 存在
  * 3. 遍历所有 WorkerW，找到内含 SHELLDLL_DefView（桌面图标视图）的那个
- * 4. 返回其 sibling WorkerW；找不到则回退到 Progman
+ * 4. 返回其 sibling WorkerW；找不到则返回 null（不再回退到 Progman，避免可见但无法点击）
  */
 const findDesktopWorkerW = (): Hwnd => {
   const progman = FindWindowW("Progman", null);
@@ -80,7 +80,7 @@ const findDesktopWorkerW = (): Hwnd => {
     }
   }
 
-  return workerw ?? progman;
+  return workerw;
 };
 
 /** 将窗口从桌面 WorkerW 恢复为普通顶层窗口（切换悬浮模式前必须调用） */

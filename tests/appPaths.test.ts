@@ -26,7 +26,7 @@ describe("migrateLegacyTodos", () => {
       version: 1,
       lastRefreshDate: "2026-07-08",
       todos: [{ id: "1", title: "旧待办", createdAt: "2026-07-08T00:00:00.000Z", scheduledDate: "2026-07-08", status: "active", rating: 1 }],
-      settings: { displayMode: "desktop", launchAtLogin: false, shortcut: "CommandOrControl+Alt+T", showWidgetShortcut: "CommandOrControl+Alt+W" }
+      settings: { displayMode: "desktop", launchAtLogin: false, shortcut: "CommandOrControl+2", showWidgetShortcut: "CommandOrControl+1" }
     };
 
     writeFileSync(join(legacyDir, "todos.json"), JSON.stringify(legacyData));

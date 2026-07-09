@@ -37,6 +37,7 @@ const api = {
   openSettings: (): Promise<void> => ipcRenderer.invoke("windows:openSettings"),
   /** 隐藏当前窗口（快捷添加窗口 blur 时也走此通道） */
   closeCurrentWindow: (): Promise<void> => ipcRenderer.invoke("windows:closeCurrent"),
+  prepareWidgetDrag: (): Promise<void> => ipcRenderer.invoke("widget:prepareDrag"),
   getFloatOnPage: (): Promise<boolean> => ipcRenderer.invoke("widget:getFloatOnPage"),
   toggleFloatOnPage: (): Promise<boolean> => ipcRenderer.invoke("widget:toggleFloatOnPage"),
   minimizeWidget: (): Promise<void> => ipcRenderer.invoke("widget:minimize"),

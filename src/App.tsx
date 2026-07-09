@@ -30,7 +30,7 @@ const formatDate = (date: string): string => {
 
 /** Electron 加速器格式 → 用户可读，如 CommandOrControl+Alt+T → Ctrl + Alt + T */
 const formatShortcut = (shortcut?: string): string =>
-  (shortcut ?? "CommandOrControl+Alt+T")
+  (shortcut ?? "CommandOrControl+2")
     .replace("CommandOrControl", "Ctrl")
     .replace(/\+/g, " + ");
 
@@ -131,8 +131,13 @@ export default function App(): React.ReactElement {
 
   return (
     <main className="widget-shell">
-      <section className="widget-card">
-        <header className="widget-header draggable">
+      <section
+        className="widget-card"
+        onMouseDown={() => {
+          void window.todoApi.prepareWidgetDrag();
+        }}
+      >
+        <header className="widget-header">
           <div>
             <p className="eyebrow">{formatDate(snapshot.today)}</p>
             <h1>桌面代办</h1>
@@ -175,14 +180,14 @@ export default function App(): React.ReactElement {
           <button type="submit">添加</button>
         </form>
 
-        <div className="summary-row">
+        <div className="summary-row no-drag">
           <span>{remainingLabel}</span>
           <button type="button" onClick={() => window.todoApi.openAddTodo()}>
             快捷添加
           </button>
         </div>
 
-        <section className="todo-list" aria-label="今日待办">
+        <section className="todo-list no-drag" aria-label="今日待办">
           {snapshot.activeTodos.length === 0 ? (
             <div className="empty-state">
               <strong>今天清空了</strong>
@@ -242,7 +247,7 @@ export default function App(): React.ReactElement {
           )}
         </section>
 
-        <section className="completed-panel">
+        <section className="completed-panel no-drag">
           <div className="section-title">
             <span>今天完成</span>
             <strong>{snapshot.completedToday.length}</strong>
