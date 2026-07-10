@@ -307,7 +307,7 @@ export default function App(): React.ReactElement {
           </div>
           <span>
             {desktopAttached === false
-              ? "桌面固定失败，可点击右上角置顶按钮显示"
+              ? "当前环境不支持桌面固定，已自动切换为普通窗口"
               : `${formatShortcut(settings?.shortcut)} 呼出添加，托盘图标可显示组件`}
           </span>
         </footer>

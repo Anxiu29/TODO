@@ -9,10 +9,10 @@
  *
  * 启动顺序：configureUserDataPath → requestSingleInstanceLock → app.whenReady → boot
  */
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, powerMonitor, screen, Tray } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen, Tray } from "electron";
 import { join } from "node:path";
 import { configureUserDataPath, getAppIconPath } from "./appPaths";
-import { attachWindowToDesktop, detachWindowFromDesktop } from "./desktop/attachToDesktop";
+import { attachWindowToDesktop, detachWindowFromDesktop, isDesktopHostAvailable, refreshDesktopWindowRegion } from "./desktop/attachToDesktop";
 import { TodoStore } from "./todoStore";
 import { checkForUpdates, getAppVersionInfo, getUpdateStatus, quitAndInstallUpdate, setupAutoUpdater } from "./updater";
 import type { ShortcutRegistrationResult, TodoDraft, TodoUpdate, WidgetDisplayMode, WindowBounds } from "../src/types/todo";
@@ -37,8 +37,6 @@ let pinnedFloat = false;
 let temporaryFloat = false;
 /** 桌面附着失败时的延迟重试定时器 */
 let desktopAttachTimer: NodeJS.Timeout | undefined;
-/** 启动/恢复后的多阶段稳定化定时器 */
-let desktopStabilizeTimers: NodeJS.Timeout[] = [];
 /** 点击进入拖动准备后，如果没有真的移动，自动恢复桌面附着 */
 let dragAttachFallbackTimer: NodeJS.Timeout | undefined;
 /** 拖动前已从桌面脱离，待 moved 后重新附着 */
@@ -149,7 +147,7 @@ const showWidgetWindow = (): void => {
     return;
   }
 
-  activateDesktopWidgetForInteraction();
+  widgetWindow.showInactive();
 };
 
 /** 托盘点击或快捷键触发：桌面固定模式临时浮到当前页面；普通模式直接显示。 */
@@ -200,42 +198,43 @@ const wakeWidgetForInteraction = (): void => {
   widgetWindow.focus();
 };
 
-const activateDesktopWidgetForInteraction = (): void => {
-  if (!widgetWindow || isFloating() || !isDesktopDisplayMode()) {
-    return;
-  }
+/** 桌面固定失败时降级为可交互的普通窗口，避免黑边/无法点击。 */
+const applyNormalWidgetFallback = (bounds?: WindowBounds): void => {
+  if (!widgetWindow) return;
 
+  clearTimeout(dragAttachFallbackTimer);
+  widgetDragDetached = false;
+  detachWindowFromDesktop(widgetWindow);
+  if (bounds) {
+    widgetWindow.setBounds(bounds);
+  }
+  widgetWindow.setAlwaysOnTop(false);
+  widgetWindow.setMinimizable(true);
+  widgetWindow.setSkipTaskbar(false);
   widgetWindow.show();
   widgetWindow.focus();
-  widgetWindow.moveTop();
+  widgetWindow.webContents.send("desktop-attach:result", false);
 };
 
-const attachDesktopWidget = async (options: { activate: boolean }): Promise<boolean> => {
+const attachDesktopWidget = async (): Promise<boolean> => {
   if (!widgetWindow || isFloating() || !isDesktopDisplayMode()) {
     return false;
   }
 
+  if (!isDesktopHostAvailable()) {
+    return false;
+  }
+
+  const bounds = widgetWindow.getBounds();
   widgetWindow.setAlwaysOnTop(false);
   widgetWindow.setMinimizable(false);
   widgetWindow.setSkipTaskbar(true);
   detachWindowFromDesktop(widgetWindow);
-  widgetWindow.setBounds(widgetWindow.getBounds());
+  widgetWindow.setBounds(bounds);
   widgetWindow.show();
 
   const attached = await attachWindowToDesktop(widgetWindow);
   widgetWindow.webContents.send("desktop-attach:result", attached);
-
-  if (attached && options.activate) {
-    activateDesktopWidgetForInteraction();
-    setTimeout(activateDesktopWidgetForInteraction, 80);
-  }
-
-  if (!attached) {
-    detachWindowFromDesktop(widgetWindow);
-    widgetWindow.show();
-    widgetWindow.moveTop();
-  }
-
   return attached;
 };
 
@@ -255,7 +254,6 @@ const applyWidgetDisplayMode = async (): Promise<void> => {
 
   if (isFloating()) {
     clearTimeout(dragAttachFallbackTimer);
-    clearDesktopStabilization();
     widgetDragDetached = false;
     detachWindowFromDesktop(widgetWindow);
     widgetWindow.setBounds(bounds);
@@ -271,7 +269,6 @@ const applyWidgetDisplayMode = async (): Promise<void> => {
 
   if (!isDesktopDisplayMode()) {
     clearTimeout(dragAttachFallbackTimer);
-    clearDesktopStabilization();
     widgetDragDetached = false;
     detachWindowFromDesktop(widgetWindow);
     widgetWindow.setBounds(bounds);
@@ -285,8 +282,16 @@ const applyWidgetDisplayMode = async (): Promise<void> => {
 
   clearTimeout(dragAttachFallbackTimer);
   widgetDragDetached = false;
-  const attached = await attachDesktopWidget({ activate: true });
-  if (!attached) return;
+  const attached = await attachDesktopWidget();
+  if (!attached) {
+    applyNormalWidgetFallback(bounds);
+    if (!isDesktopHostAvailable()) {
+      applySettings(store.setDisplayMode("normal"));
+    } else {
+      scheduleDesktopAttachRetries();
+    }
+    return;
+  }
 
   scheduleDesktopAttachRetries();
 };
@@ -313,7 +318,7 @@ const scheduleDesktopAttachRetries = (): void => {
       return;
     }
 
-    const attached = await attachDesktopWidget({ activate: false });
+    const attached = await attachDesktopWidget();
 
     if (attached) {
       return;
@@ -326,40 +331,12 @@ const scheduleDesktopAttachRetries = (): void => {
       return;
     }
 
-    detachWindowFromDesktop(widgetWindow);
-    widgetWindow.show();
-    widgetWindow.moveTop();
+    applyNormalWidgetFallback();
   };
 
   desktopAttachTimer = setTimeout(() => {
     void retry(0);
   }, delays[0]);
-};
-
-const clearDesktopStabilization = (): void => {
-  for (const timer of desktopStabilizeTimers) {
-    clearTimeout(timer);
-  }
-  desktopStabilizeTimers = [];
-};
-
-/** 启动/恢复后少量静默确认桌面附着，避免 Explorer 慢启动时必须手动唤醒。 */
-const scheduleDesktopStabilization = (): void => {
-  clearDesktopStabilization();
-  if (!widgetWindow || isFloating() || !isDesktopDisplayMode()) {
-    return;
-  }
-
-  const delays = [1000, 5000];
-  desktopStabilizeTimers = delays.map((delay) =>
-    setTimeout(() => {
-      if (!widgetWindow || isFloating() || !isDesktopDisplayMode()) {
-        return;
-      }
-
-      void attachDesktopWidget({ activate: false });
-    }, delay)
-  );
 };
 
 /** 首次启动或无保存位置时，默认放在主屏工作区右上角 */
@@ -442,10 +419,15 @@ const createWidgetWindow = async (): Promise<void> => {
     widgetDragDetached = false;
     clearTimeout(dragAttachFallbackTimer);
     void (async () => {
-      await attachDesktopWidget({ activate: true });
+      await attachDesktopWidget();
     })();
   });
-  widgetWindow.on("resize", persistWidgetBounds);
+  widgetWindow.on("resize", () => {
+    persistWidgetBounds();
+    if (widgetWindow && isDesktopDisplayMode() && !isFloating()) {
+      refreshDesktopWindowRegion(widgetWindow);
+    }
+  });
   widgetWindow.on("minimize", () => {
     if (!isFloating()) {
       return;
@@ -469,7 +451,6 @@ const createWidgetWindow = async (): Promise<void> => {
   });
   widgetWindow.on("closed", () => {
     clearTimeout(dragAttachFallbackTimer);
-    clearDesktopStabilization();
     widgetDragDetached = false;
     widgetWindow = null;
   });
@@ -649,12 +630,6 @@ const setWidgetDisplayMode = async (displayMode: WidgetDisplayMode): Promise<Ret
     await applyWidgetDisplayMode();
   }
 
-  if (nextDisplayMode === "desktop") {
-    scheduleDesktopStabilization();
-  } else {
-    clearDesktopStabilization();
-  }
-
   return settings;
 };
 
@@ -733,9 +708,7 @@ const registerIpc = (): void => {
       }
 
       widgetDragDetached = false;
-      void (async () => {
-        await attachDesktopWidget({ activate: true });
-      })();
+      void attachDesktopWidget();
     }, 450);
   });
   ipcMain.handle("widget:minimize", () => {
@@ -865,14 +838,6 @@ const createTray = (): void => {
   tray.on("click", () => void showWidgetOnCurrentPage());
 };
 
-const setupDesktopStabilityHooks = (): void => {
-  powerMonitor.on("resume", scheduleDesktopStabilization);
-  powerMonitor.on("unlock-screen", scheduleDesktopStabilization);
-  screen.on("display-added", scheduleDesktopStabilization);
-  screen.on("display-removed", scheduleDesktopStabilization);
-  screen.on("display-metrics-changed", scheduleDesktopStabilization);
-};
-
 /** 应用启动：初始化存储、窗口、全局快捷键与托盘。 */
 const boot = async (): Promise<void> => {
   store = new TodoStore();
@@ -883,8 +848,6 @@ const boot = async (): Promise<void> => {
   await createWidgetWindow();
   registerGlobalShortcuts();
   createTray();
-  setupDesktopStabilityHooks();
-  scheduleDesktopStabilization();
   setupAutoUpdater();
 };
 
@@ -913,7 +876,6 @@ app.on("activate", () => {
 app.on("will-quit", () => {
   clearTimeout(desktopAttachTimer);
   clearTimeout(dragAttachFallbackTimer);
-  clearDesktopStabilization();
   globalShortcut.unregisterAll();
 });
 

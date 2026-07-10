@@ -184,7 +184,7 @@ export default function SettingsWindow(): React.ReactElement {
             <label className="settings-option">
               <div>
                 <strong>组件显示方式</strong>
-                <span>默认普通窗口；固定在桌面上时，按 Win+D 仍会显示。</span>
+                <span>普通窗口兼容性最好；桌面固定依赖系统桌面层，不支持时会自动降级为普通窗口。</span>
               </div>
               <select
                 className="settings-select"

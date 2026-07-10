@@ -5,6 +5,8 @@
  * 将 Electron 窗口 SetParent 到 WorkerW 后，窗口会显示在壁纸之上、桌面图标之下，
  * 实现「嵌入桌面」的挂件效果。
  *
+ * 注意：只能挂到 sibling WorkerW，不能回退到 Progman（会导致黑边且无法点击）。
+ *
  * 依赖 koffi 调用 user32.dll / kernel32.dll，仅 win32 平台有效。
  */
 import koffi from "koffi";
@@ -13,9 +15,11 @@ import type { BrowserWindow } from "electron";
 /** 加载 Windows 用户界面与内核 API 动态库 */
 const user32 = koffi.load("user32.dll");
 const kernel32 = koffi.load("kernel32.dll");
+const gdi32 = koffi.load("gdi32.dll");
 
 /** HWND 在 koffi 中映射为 void* 指针 */
 const HWND = koffi.alias("HWND", "void *");
+const HRGN = koffi.alias("HRGN", "void *");
 type Hwnd = object | null;
 
 /** 按类名/标题查找顶层窗口，Progman 即 Program Manager 桌面容器 */
@@ -36,10 +40,19 @@ const SetLastError = kernel32.func("void __stdcall SetLastError(uint32 dwErrCode
 const SendMessageTimeoutW = user32.func(
   "uintptr_t __stdcall SendMessageTimeoutW(HWND hWnd, uint32 Msg, uintptr_t wParam, intptr_t lParam, uint32 fuFlags, uint32 uTimeout, _Out_ uintptr_t *lpdwResult)"
 );
+const SetWindowPos = user32.func(
+  "int __stdcall SetWindowPos(HWND hWnd, HWND hWndInsertAfter, int X, int Y, int cx, int cy, uint32 uFlags)"
+);
+const SetWindowRgn = user32.func("int __stdcall SetWindowRgn(HWND hWnd, HRGN hRgn, int bRedraw)");
+const CreateRoundRectRgn = gdi32.func("HRGN __stdcall CreateRoundRectRgn(int left, int top, int right, int bottom, int w, int h)");
 
 /** 向 Progman 发送此消息会创建承载桌面图标的 WorkerW 层（Windows 10/11 通用技巧） */
 const WM_SPAWN_WORKER = 0x052c;
 const SW_SHOWNA = 8;
+const SWP_NOACTIVATE = 0x0010;
+const SWP_NOSENDCHANGING = 0x0400;
+const SWP_SHOWWINDOW = 0x0040;
+const HWND_TOP = null;
 
 /** 从 Electron BrowserWindow 取出原生 HWND 句柄 */
 const readHwnd = (window: BrowserWindow): Hwnd => {
@@ -48,13 +61,9 @@ const readHwnd = (window: BrowserWindow): Hwnd => {
 };
 
 /**
- * 查找承载桌面图标的 WorkerW 窗口。
+ * 查找承载桌面图标的 sibling WorkerW 窗口。
  *
- * 步骤：
- * 1. 找到 Progman 窗口
- * 2. 发送 WM_SPAWN_WORKER 确保 WorkerW 存在
- * 3. 遍历所有 WorkerW，找到内含 SHELLDLL_DefView（桌面图标视图）的那个
- * 4. 优先返回其 sibling WorkerW；找不到 sibling 时回退到 Progman，兼容部分 Explorer 桌面层结构
+ * 只返回 sibling WorkerW；找不到则返回 null（不回退 Progman，避免黑边）。
  */
 const findDesktopWorkerW = (): Hwnd => {
   const progman = FindWindowW("Progman", null);
@@ -66,7 +75,6 @@ const findDesktopWorkerW = (): Hwnd => {
   SendMessageTimeoutW(progman, WM_SPAWN_WORKER, 0, 0, 0, 1000, resultPtr);
   koffi.free(resultPtr);
 
-  let workerw: Hwnd = null;
   let current: Hwnd = null;
 
   while (true) {
@@ -77,13 +85,37 @@ const findDesktopWorkerW = (): Hwnd => {
 
     const shellView = FindWindowExW(current, null, "SHELLDLL_DefView", null);
     if (shellView) {
-      workerw = FindWindowExW(null, current, "WorkerW", null);
-      break;
+      return FindWindowExW(null, current, "WorkerW", null);
     }
   }
 
-  return workerw || progman;
+  return null;
 };
+
+/** 用圆角区域裁剪窗口，减少透明窗口在桌面层上的黑边。 */
+export const refreshDesktopWindowRegion = (window: BrowserWindow, radius = 28): void => {
+  try {
+    const targetHwnd = readHwnd(window);
+    const { width, height } = window.getBounds();
+    const region = CreateRoundRectRgn(0, 0, width + 1, height + 1, radius, radius);
+    SetWindowRgn(targetHwnd, region, 1);
+  } catch {
+    // 裁剪失败不影响主流程
+  }
+};
+
+/** 清除窗口区域裁剪，恢复普通矩形窗口。 */
+const clearWindowRegion = (window: BrowserWindow): void => {
+  try {
+    const targetHwnd = readHwnd(window);
+    SetWindowRgn(targetHwnd, null, 1);
+  } catch {
+    // ignore
+  }
+};
+
+/** 探测当前环境是否支持桌面固定（WorkerW 是否可用）。 */
+export const isDesktopHostAvailable = (): boolean => process.platform === "win32" && findDesktopWorkerW() !== null;
 
 /** 将窗口从桌面 WorkerW 恢复为普通顶层窗口（切换悬浮模式前必须调用） */
 export const detachWindowFromDesktop = (window: BrowserWindow): boolean => {
@@ -94,6 +126,7 @@ export const detachWindowFromDesktop = (window: BrowserWindow): boolean => {
   try {
     const targetHwnd = readHwnd(window);
     SetParent(targetHwnd, null);
+    clearWindowRegion(window);
     return true;
   } catch {
     return false;
@@ -104,7 +137,7 @@ export const detachWindowFromDesktop = (window: BrowserWindow): boolean => {
  * 将 Electron 窗口设为桌面 WorkerW 的子窗口。
  *
  * 调用前先 detach 避免重复 SetParent；成功后用 SW_SHOWNA 显示且不抢焦点。
- * Explorer 未就绪时可能失败，主进程会通过 scheduleDesktopAttachRetries 重试。
+ * Explorer 未就绪时可能失败，主进程会降级为普通窗口。
  */
 export const attachWindowToDesktop = async (window: BrowserWindow): Promise<boolean> => {
   if (process.platform !== "win32") {
@@ -127,6 +160,17 @@ export const attachWindowToDesktop = async (window: BrowserWindow): Promise<bool
       return false;
     }
 
+    const bounds = window.getBounds();
+    SetWindowPos(
+      targetHwnd,
+      HWND_TOP,
+      bounds.x,
+      bounds.y,
+      bounds.width,
+      bounds.height,
+      SWP_NOACTIVATE | SWP_NOSENDCHANGING | SWP_SHOWWINDOW
+    );
+    refreshDesktopWindowRegion(window);
     ShowWindow(targetHwnd, SW_SHOWNA);
     return true;
   } catch {
