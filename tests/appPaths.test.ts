@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
-import { migrateLegacyTodos } from "../electron/appPaths";
+import { getLoginExecutablePath, migrateLegacyTodos } from "../electron/appPaths";
 
 const tempDirs: string[] = [];
 
@@ -16,6 +16,23 @@ afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+describe("getLoginExecutablePath", () => {
+  it("uses the portable launcher path when provided", () => {
+    expect(
+      getLoginExecutablePath(
+        "C:/Users/a/AppData/Local/Temp/abc/Desktop Todo Widget.exe",
+        "D:/tools/Desktop-Todo-Widget-0.2.0.exe"
+      )
+    ).toBe("D:/tools/Desktop-Todo-Widget-0.2.0.exe");
+  });
+
+  it("falls back to the running exe for install builds", () => {
+    expect(
+      getLoginExecutablePath("C:/Users/a/AppData/Local/Programs/Desktop Todo Widget/Desktop Todo Widget.exe")
+    ).toBe("C:/Users/a/AppData/Local/Programs/Desktop Todo Widget/Desktop Todo Widget.exe");
+  });
 });
 
 describe("migrateLegacyTodos", () => {

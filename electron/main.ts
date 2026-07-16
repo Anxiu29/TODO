@@ -11,7 +11,7 @@
  */
 import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen, Tray } from "electron";
 import { join } from "node:path";
-import { configureUserDataPath, getAppIconPath } from "./appPaths";
+import { configureUserDataPath, getAppIconPath, getLoginExecutablePath } from "./appPaths";
 import {
   attachWindowToDesktop,
   detachWindowFromDesktop,
@@ -248,12 +248,47 @@ const attachDesktopWidget = async (): Promise<boolean> => {
   return false;
 };
 
-/** 同步 Windows 登录项设置，与 todos.json 中的 launchAtLogin 保持一致 */
+/** 规范化 exe 路径，便于比较注册表中的登录项路径是否过期 */
+const normalizeExecPath = (filePath: string): string => filePath.replace(/\\/g, "/").toLowerCase();
+
+/** 写入 Windows 登录项（Run 注册表），便携版注册外层 exe，安装版注册当前 exe */
 const applyLoginSetting = (enabled: boolean): void => {
+  if (!app.isPackaged) {
+    return;
+  }
+
   app.setLoginItemSettings({
     openAtLogin: enabled,
-    path: process.execPath
+    path: getLoginExecutablePath()
   });
+};
+
+/**
+ * 将系统登录项与 todos.json 对齐。
+ * 开启时若路径过期（升级/移动 exe 后常见），自动用当前路径刷新，保证下次开机能拉起。
+ */
+const syncLoginSetting = (): void => {
+  if (!app.isPackaged) {
+    return;
+  }
+
+  const desired = store.getSettings().launchAtLogin;
+  const loginExecutablePath = getLoginExecutablePath();
+  const current = app.getLoginItemSettings({ path: loginExecutablePath });
+  const execPath = normalizeExecPath(loginExecutablePath);
+
+  if (desired) {
+    const registeredPath = current.launchItems.find((item) => item.enabled)?.path;
+    const pathStale = !registeredPath || normalizeExecPath(registeredPath) !== execPath;
+    if (!current.openAtLogin || pathStale) {
+      applyLoginSetting(true);
+    }
+    return;
+  }
+
+  if (current.openAtLogin) {
+    applyLoginSetting(false);
+  }
 };
 
 /** 应用挂件显示：置顶/临时悬浮优先；否则按设置选择普通窗口或桌面固定层。 */
@@ -704,7 +739,10 @@ const registerIpc = (): void => {
     return snapshot;
   });
   ipcMain.handle("todos:getCalendar", (_event, year: number, month: number) => store.getCalendar(year, month));
-  ipcMain.handle("settings:get", () => store.getSettings());
+  ipcMain.handle("settings:get", () => {
+    syncLoginSetting();
+    return store.getSettings();
+  });
   ipcMain.handle("settings:setLaunchAtLogin", (_event, enabled: boolean) => {
     applyLoginSetting(enabled);
     return applySettings(store.setLaunchAtLogin(enabled));
@@ -879,7 +917,7 @@ const createTray = (): void => {
 const boot = async (): Promise<void> => {
   store = new TodoStore();
   pinnedFloat = false;
-  applyLoginSetting(store.getSettings().launchAtLogin);
+  syncLoginSetting();
   store.refreshDaily();
   registerIpc();
   await createWidgetWindow();

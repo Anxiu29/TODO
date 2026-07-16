@@ -281,6 +281,12 @@ h2 {
   gap: 8px;
   min-height: 0;
   overflow: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.todo-list::-webkit-scrollbar {
+  display: none;
 }
 
 .todo-item,

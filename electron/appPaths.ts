@@ -70,3 +70,15 @@ export const migrateLegacyTodos = (legacyUserData: string, newUserData: string):
 /** 应用图标路径：开发读 build/icon.png，打包后读 extraResources 中的 icon.png */
 export const getAppIconPath = (): string =>
   app.isPackaged ? join(process.resourcesPath, "icon.png") : join(app.getAppPath(), "build/icon.png");
+
+/**
+ * 写入 Windows 开机启动项时应使用的 exe 路径。
+ * 便携版进程运行在临时目录，须注册外层便携 exe；安装版直接用当前 exe。
+ */
+export const getLoginExecutablePath = (
+  execPath = process.execPath,
+  portableExecutableFile = process.env.PORTABLE_EXECUTABLE_FILE
+): string => {
+  const portablePath = portableExecutableFile?.trim();
+  return portablePath || execPath;
+};

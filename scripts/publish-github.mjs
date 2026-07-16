@@ -1,8 +1,12 @@
-import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadEnv } from "./load-env.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+loadEnv();
+
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const publishConfig = pkg.build?.publish?.[0];
 
@@ -16,111 +20,157 @@ const tag = `v${version}`;
 const releaseDir = join(root, "release", version);
 const owner = publishConfig.owner;
 const repo = publishConfig.repo;
+const repoSlug = `${owner}/${repo}`;
 const token = process.env.GH_TOKEN;
 
 const files = [
-  `Desktop-Todo-Widget-Setup-${version}.exe`,
-  `Desktop-Todo-Widget-${version}.exe`,
   "latest.yml",
   "portable.yml",
-  `Desktop-Todo-Widget-Setup-${version}.exe.blockmap`
+  `Desktop-Todo-Widget-Setup-${version}.exe.blockmap`,
+  `Desktop-Todo-Widget-Setup-${version}.exe`,
+  `Desktop-Todo-Widget-${version}.exe`
 ];
 
-const api = (path, init = {}) =>
-  fetch(`https://api.github.com${path}`, {
-    ...init,
-    headers: {
-      Accept: "application/vnd.github+json",
-      Authorization: `Bearer ${token}`,
-      "User-Agent": "desktop-todo-widget-publish",
-      "X-GitHub-Api-Version": "2022-11-28",
-      ...(init.headers ?? {})
-    }
+const ghEnv = {
+  ...process.env,
+  GH_TOKEN: token,
+  GITHUB_TOKEN: token
+};
+
+const formatSize = (bytes) => {
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const runGh = (args, label) => {
+  console.log(`> gh ${args.join(" ")}`);
+  const result = spawnSync("gh", args, {
+    env: ghEnv,
+    stdio: "inherit",
+    windowsHide: true
   });
 
-const uploadAsset = async (releaseId, filePath) => {
-  const fileName = basename(filePath);
-  const size = statSync(filePath).size;
-  const contentType = fileName.endsWith(".yml") ? "text/yaml" : "application/octet-stream";
+  if (result.error) {
+    throw new Error(`${label} 失败: ${result.error.message}`);
+  }
+  if (result.status !== 0) {
+    throw new Error(`${label} 失败，退出码 ${result.status}`);
+  }
+};
 
-  const response = await fetch(
-    `https://uploads.github.com/repos/${owner}/${repo}/releases/${releaseId}/assets?name=${encodeURIComponent(fileName)}`,
+const ghExists = (args) =>
+  spawnSync("gh", args, {
+    env: ghEnv,
+    stdio: "ignore",
+    windowsHide: true
+  }).status === 0;
+
+const ensureGh = () => {
+  const result = spawnSync("gh", ["--version"], {
+    env: ghEnv,
+    stdio: "pipe",
+    encoding: "utf8",
+    windowsHide: true
+  });
+  if (result.status !== 0) {
+    throw new Error("未找到 gh 命令，请先安装 GitHub CLI: https://cli.github.com/");
+  }
+};
+
+const getRemoteAssetSizes = () => {
+  const result = spawnSync(
+    "gh",
+    ["api", `repos/${owner}/${repo}/releases/tags/${tag}`, "--jq", ".assets[] | [.name, .size] | @tsv"],
     {
-      method: "POST",
-      headers: {
-        Accept: "application/vnd.github+json",
-        Authorization: `Bearer ${token}`,
-        "Content-Type": contentType,
-        "Content-Length": String(size),
-        "User-Agent": "desktop-todo-widget-publish",
-        "X-GitHub-Api-Version": "2022-11-28"
-      },
-      body: createReadStream(filePath),
-      duplex: "half"
+      env: ghEnv,
+      encoding: "utf8",
+      windowsHide: true
     }
   );
 
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`上传 ${fileName} 失败: ${response.status} ${body}`);
+  if (result.status !== 0) {
+    throw new Error(`读取 Release 资源失败: ${result.stderr || result.stdout}`);
   }
 
-  console.log(`已上传 ${fileName}`);
+  const sizes = new Map();
+  for (const line of result.stdout.split(/\r?\n/)) {
+    if (!line.trim()) {
+      continue;
+    }
+    const tab = line.lastIndexOf("\t");
+    if (tab === -1) {
+      continue;
+    }
+    const name = line.slice(0, tab);
+    const size = Number(line.slice(tab + 1));
+    if (name && Number.isFinite(size)) {
+      sizes.set(name, size);
+    }
+  }
+  return sizes;
 };
 
-const ensureRelease = async () => {
-  const existing = await api(`/repos/${owner}/${repo}/releases/tags/${tag}`);
-  if (existing.ok) {
-    return existing.json();
+const ensureRelease = () => {
+  if (ghExists(["release", "view", tag, "--repo", repoSlug])) {
+    return;
   }
 
-  const created = await api(`/repos/${owner}/${repo}/releases`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      tag_name: tag,
-      name: version,
-      draft: false,
-      prerelease: false,
-      generate_release_notes: true
-    })
-  });
-
-  if (!created.ok) {
-    const body = await created.text();
-    throw new Error(`创建 Release 失败: ${created.status} ${body}`);
-  }
-
-  return created.json();
+  runGh(
+    ["release", "create", tag, "--repo", repoSlug, "--title", version, "--generate-notes"],
+    "创建 Release"
+  );
 };
 
-const replaceAssets = async (release) => {
-  const assets = release.assets ?? [];
-  const names = new Set(files);
+const pickFilesToUpload = (remoteSizes) => {
+  const pending = [];
 
-  for (const asset of assets) {
-    if (!names.has(asset.name)) {
+  for (const fileName of files) {
+    const filePath = join(releaseDir, fileName);
+    const localSize = statSync(filePath).size;
+    const remoteSize = remoteSizes.get(fileName);
+
+    if (remoteSize === localSize) {
+      console.log(`跳过 ${fileName}（远端已存在，${formatSize(localSize)}）`);
       continue;
     }
 
-    const deleted = await api(`/repos/${owner}/${repo}/releases/assets/${asset.id}`, {
-      method: "DELETE"
-    });
-
-    if (!deleted.ok && deleted.status !== 404) {
-      const body = await deleted.text();
-      throw new Error(`删除旧资源 ${asset.name} 失败: ${deleted.status} ${body}`);
+    if (remoteSize !== undefined) {
+      console.log(`待上传 ${fileName}（远端 ${formatSize(remoteSize)} -> 本地 ${formatSize(localSize)}）`);
+    } else {
+      console.log(`待上传 ${fileName}（${formatSize(localSize)}）`);
     }
+
+    pending.push(fileName);
   }
 
-  for (const fileName of files) {
-    await uploadAsset(release.id, join(releaseDir, fileName));
+  return pending;
+};
+
+const uploadFiles = (pending) => {
+  if (pending.length === 0) {
+    console.log("所有文件均已是最新，无需上传。");
+    return;
+  }
+
+  console.log(`共 ${pending.length} 个文件待上传，逐个上传以避免卡死。`);
+
+  for (const fileName of pending) {
+    const filePath = join(releaseDir, fileName);
+    const size = statSync(filePath).size;
+    console.log(`\n开始上传 ${fileName} (${formatSize(size)})...`);
+    runGh(
+      ["release", "upload", tag, "--repo", repoSlug, "--clobber", filePath],
+      `上传 ${fileName}`
+    );
+    console.log(`完成 ${fileName}`);
   }
 };
 
-const main = async () => {
+const main = () => {
   if (!token) {
-    console.error("请先设置环境变量 GH_TOKEN");
+    console.error("请先设置 GH_TOKEN：复制 .env.example 为 .env 并填入 token，或设置环境变量");
     process.exit(1);
   }
 
@@ -139,13 +189,20 @@ const main = async () => {
     process.exit(1);
   }
 
-  console.log(`发布 ${tag} 到 ${owner}/${repo}`);
-  const release = await ensureRelease();
-  await replaceAssets(release);
-  console.log(`完成: https://github.com/${owner}/${repo}/releases/tag/${tag}`);
+  ensureGh();
+  console.log(`发布 ${tag} 到 ${repoSlug}`);
+  ensureRelease();
+
+  const remoteSizes = getRemoteAssetSizes();
+  const pending = pickFilesToUpload(remoteSizes);
+  uploadFiles(pending);
+
+  console.log(`完成: https://github.com/${repoSlug}/releases/tag/${tag}`);
 };
 
-main().catch((error) => {
+try {
+  main();
+} catch (error) {
   console.error(error instanceof Error ? error.message : error);
   process.exit(1);
-});
+}
