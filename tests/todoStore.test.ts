@@ -114,8 +114,10 @@ describe("todo daily refresh", () => {
 });
 
 describe("todo tags and appearance normalize", () => {
-  it("normalizes tags to presets only and dedupes", () => {
-    expect(normalizeTodoTags([" 工作 ", "工作", "", "自定义", "学习", 1])).toEqual(["工作", "学习"]);
+  it("normalizes tags: presets only, one category, urgent can stack", () => {
+    expect(normalizeTodoTags([" 工作 ", "工作", "", "自定义", "学习", 1])).toEqual(["工作"]);
+    expect(normalizeTodoTags(["生活", "紧急", "工作"])).toEqual(["生活", "紧急"]);
+    expect(normalizeTodoTags(["紧急"])).toEqual(["紧急"]);
   });
 
   it("normalizes subtasks and drops invalid entries", () => {

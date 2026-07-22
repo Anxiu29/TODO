@@ -8,8 +8,12 @@ export const WIDGET_OPACITY_MIN = 0.5;
 export const WIDGET_OPACITY_MAX = 1;
 export const WIDGET_OPACITY_DEFAULT = 0.92;
 
-/** 内置标签建议（可自由添加其它名称） */
+/** 内置标签：分类互斥，紧急可与任一分类叠加 */
 export const PRESET_TAGS = ["工作", "生活", "学习", "紧急"] as const;
+/** 分类标签（每条待办至多一个） */
+export const CATEGORY_TAGS = ["工作", "生活", "学习"] as const;
+/** 可与分类并存的特殊标签 */
+export const URGENT_TAG = "紧急";
 
 export type TodoStatus = "active" | "completed";
 
@@ -29,19 +33,27 @@ export const normalizeTodoRating = (rating?: number): number => {
   return Math.min(TODO_RATING_MAX, Math.max(TODO_RATING_MIN, Math.round(rating)));
 };
 
-/** 规范化标签列表：仅保留预设标签，去重 */
+/** 规范化标签：仅预设；分类至多一个（取首次出现）；紧急可并存 */
 export const normalizeTodoTags = (tags?: unknown): string[] => {
   if (!Array.isArray(tags)) return [];
   const allowed = new Set<string>(PRESET_TAGS);
-  const seen = new Set<string>();
-  const result: string[] = [];
+  const categories = new Set<string>(CATEGORY_TAGS);
+  let category: string | null = null;
+  let urgent = false;
   for (const raw of tags) {
     if (typeof raw !== "string") continue;
     const tag = raw.trim();
-    if (!tag || !allowed.has(tag) || seen.has(tag)) continue;
-    seen.add(tag);
-    result.push(tag);
+    if (!tag || !allowed.has(tag)) continue;
+    if (tag === URGENT_TAG) {
+      urgent = true;
+      continue;
+    }
+    // 脏数据里多个分类时保留第一个，避免加载后语义漂移
+    if (categories.has(tag) && !category) category = tag;
   }
+  const result: string[] = [];
+  if (category) result.push(category);
+  if (urgent) result.push(URGENT_TAG);
   return result;
 };
 
@@ -102,7 +114,7 @@ export type Todo = {
   status: TodoStatus;
   /** 紧急程度 1–5，影响列表排序 */
   rating: number;
-  /** 标签名称列表 */
+  /** 标签：至多一个分类（工作/生活/学习），可另加「紧急」 */
   tags: string[];
   /** 子任务列表 */
   subtasks: TodoSubtask[];

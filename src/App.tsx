@@ -201,7 +201,7 @@ export default function App(): React.ReactElement {
     ? snapshot.activeTodos.find((todo) => todo.id === contextMenu.id) ?? null
     : null;
 
-  /** 保存预计天数；空值表示不改动并收起。由「确定」触发 */
+  /** 保存预计天数；空值表示不改动并收起面板。写入成功后关闭整菜单 */
   const commitDueDays = async (): Promise<void> => {
     if (!contextMenuTodo) return;
     const todoId = contextMenuTodo.id;
@@ -218,7 +218,7 @@ export default function App(): React.ReactElement {
     }
     const next = await window.todoApi.setTodoDueDays(todoId, days);
     setSnapshot(next);
-    setContextPanel(null);
+    setContextMenu(null);
   };
 
   /** 今日进行中待办用过的标签，供顶部筛选条展示 */
@@ -747,10 +747,10 @@ export default function App(): React.ReactElement {
                     type="button"
                     className="todo-due-clear"
                     onClick={() => {
+                      // 清除已写入，关闭整菜单
                       void window.todoApi.setTodoDueDays(contextMenuTodo.id, null).then((next) => {
                         setSnapshot(next);
-                        setDueDaysDraft("");
-                        setContextPanel(null);
+                        setContextMenu(null);
                       });
                     }}
                   >
@@ -764,7 +764,11 @@ export default function App(): React.ReactElement {
               <TodoTagEditor
                 tags={contextMenuTodo.tags}
                 onChange={(tags) => {
-                  void window.todoApi.setTodoTags(contextMenuTodo.id, tags).then(setSnapshot);
+                  // 写入成功后关闭整菜单
+                  void window.todoApi.setTodoTags(contextMenuTodo.id, tags).then((next) => {
+                    setSnapshot(next);
+                    setContextMenu(null);
+                  });
                 }}
               />
             ) : null}
@@ -776,10 +780,10 @@ export default function App(): React.ReactElement {
                   event.preventDefault();
                   const title = subtaskDraft.trim();
                   if (!title) return;
+                  // 添加成功即关闭整菜单，避免操作完仍留着外壳
                   void window.todoApi.addTodoSubtask(contextMenuTodo.id, title).then((next) => {
                     setSnapshot(next);
-                    setSubtaskDraft("");
-                    setContextPanel(null);
+                    setContextMenu(null);
                   });
                 }}
               >
