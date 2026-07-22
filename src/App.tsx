@@ -2,11 +2,12 @@
  * 桌面挂件主界面（?view=widget）。
  *
  * 功能：今日待办列表、内联添加/编辑/完成/删除、紧急评分、
- * 置顶切换、完成区预览、打开日历/设置/快捷添加窗口。
+ * 右键查看添加时间与已过天数、置顶切换、完成区预览、
+ * 打开日历/设置/快捷添加窗口。
  * 数据通过 window.todoApi 与主进程同步，并订阅 IPC 推送保持多窗口一致。
  */
 import { Calendar, Minus, Pin, Settings, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import TodoRating from "./TodoRating";
 import type { AppSettings, Todo, TodoSnapshot } from "./types/todo";
@@ -26,6 +27,39 @@ const formatDate = (date: string): string => {
     day: "numeric",
     weekday: "long"
   }).format(new Date(`${date}T00:00:00`));
+};
+
+/** 将 ISO 创建时间格式化为「2026/7/21 15:30」 */
+const formatCreatedAt = (iso: string): string =>
+  new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(new Date(iso));
+
+/** 按本地日起算，距今天已过去几天（今天添加为 0） */
+const daysSinceCreated = (iso: string): number => {
+  const created = new Date(iso);
+  const now = new Date();
+  const startCreated = new Date(created.getFullYear(), created.getMonth(), created.getDate());
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.max(0, Math.floor((startToday.getTime() - startCreated.getTime()) / 86_400_000));
+};
+
+const formatDaysAgo = (iso: string): string => {
+  const days = daysSinceCreated(iso);
+  if (days === 0) return "今天添加";
+  return `已过去 ${days} 天`;
+};
+
+type TodoInfoMenu = {
+  id: string;
+  x: number;
+  y: number;
+  createdAt: string;
 };
 
 /** Electron 加速器格式 → 用户可读，如 CommandOrControl+Alt+T → Ctrl + Alt + T */
@@ -63,6 +97,9 @@ export default function App(): React.ReactElement {
   const [desktopAttached, setDesktopAttached] = useState<boolean | null>(null);
   /** 是否处于「始终置顶」模式，与主进程 pinnedFloat 同步 */
   const [isFloatingOnPage, setIsFloatingOnPage] = useState(false);
+  /** 右键查看添加时间的浮层；坐标为视口 clientX/Y */
+  const [infoMenu, setInfoMenu] = useState<TodoInfoMenu | null>(null);
+  const infoMenuRef = useRef<HTMLDivElement>(null);
 
   /** 挂载时拉取初始数据，并订阅主进程推送；unmount 时取消全部监听 */
   useEffect(() => {
@@ -81,6 +118,45 @@ export default function App(): React.ReactElement {
       offFloat();
     };
   }, []);
+
+  /** 右键信息浮层打开时：点外部 / Escape / 滚动关闭 */
+  useEffect(() => {
+    if (!infoMenu) return;
+
+    const close = (): void => setInfoMenu(null);
+
+    const handlePointerDown = (event: PointerEvent): void => {
+      if (!infoMenuRef.current?.contains(event.target as Node)) {
+        close();
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") close();
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [infoMenu]);
+
+  /** 将浮层钳制在窗口内，避免贴边时显示不全 */
+  useLayoutEffect(() => {
+    if (!infoMenu || !infoMenuRef.current) return;
+
+    const el = infoMenuRef.current;
+    const pad = 8;
+    const { width, height } = el.getBoundingClientRect();
+    const maxLeft = Math.max(pad, window.innerWidth - width - pad);
+    const maxTop = Math.max(pad, window.innerHeight - height - pad);
+    el.style.left = `${Math.min(Math.max(pad, infoMenu.x), maxLeft)}px`;
+    el.style.top = `${Math.min(Math.max(pad, infoMenu.y), maxTop)}px`;
+  }, [infoMenu]);
 
   const remainingLabel = useMemo(() => {
     if (snapshot.activeTodos.length === 0) return "今天没有待办";
@@ -218,7 +294,19 @@ export default function App(): React.ReactElement {
             </div>
           ) : (
             snapshot.activeTodos.map((todo) => (
-              <article className="todo-item" key={todo.id}>
+              <article
+                className="todo-item"
+                key={todo.id}
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setInfoMenu({
+                    id: todo.id,
+                    x: event.clientX,
+                    y: event.clientY,
+                    createdAt: todo.createdAt
+                  });
+                }}
+              >
                 <button
                   className="check-button"
                   type="button"
@@ -312,6 +400,18 @@ export default function App(): React.ReactElement {
           </span>
         </footer>
       </section>
+      {infoMenu ? (
+        <div
+          className="todo-info-menu"
+          ref={infoMenuRef}
+          role="dialog"
+          aria-label="待办添加时间"
+          style={{ left: infoMenu.x, top: infoMenu.y }}
+        >
+          <strong>{formatCreatedAt(infoMenu.createdAt)}</strong>
+          <span className="todo-info-days">{formatDaysAgo(infoMenu.createdAt)}</span>
+        </div>
+      ) : null}
     </main>
   );
 }

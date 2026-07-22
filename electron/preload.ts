@@ -48,6 +48,8 @@ const api = {
   getAppVersion: (): Promise<AppVersionInfo> => ipcRenderer.invoke("app:getVersion"),
   getUpdateStatus: (): Promise<UpdateStatus> => ipcRenderer.invoke("app:getUpdateStatus"),
   checkForUpdates: (): Promise<UpdateStatus> => ipcRenderer.invoke("app:checkForUpdates"),
+  downloadUpdate: (): Promise<UpdateStatus> => ipcRenderer.invoke("app:downloadUpdate"),
+  dismissUpdate: (): Promise<UpdateStatus> => ipcRenderer.invoke("app:dismissUpdate"),
   quitAndInstall: (): Promise<void> => ipcRenderer.invoke("app:quitAndInstall"),
 
   // ── 主进程 → 渲染进程 事件订阅 ─────────────────────────────

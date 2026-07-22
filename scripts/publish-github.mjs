@@ -117,10 +117,18 @@ const ensureRelease = () => {
     return;
   }
 
-  runGh(
-    ["release", "create", tag, "--repo", repoSlug, "--title", version, "--generate-notes"],
-    "创建 Release"
-  );
+  const notesFile = join(root, "RELEASE_NOTES.md");
+  const createArgs = ["release", "create", tag, "--repo", repoSlug, "--title", version];
+
+  if (existsSync(notesFile) && readFileSync(notesFile, "utf8").trim()) {
+    createArgs.push("--notes-file", notesFile);
+    console.log(`使用 RELEASE_NOTES.md 作为更新日志`);
+  } else {
+    createArgs.push("--generate-notes");
+    console.log("未找到 RELEASE_NOTES.md（或内容为空），使用 GitHub 自动生成的提交说明");
+  }
+
+  runGh(createArgs, "创建 Release");
 };
 
 const pickFilesToUpload = (remoteSizes) => {

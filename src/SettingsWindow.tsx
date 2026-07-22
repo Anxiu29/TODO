@@ -52,7 +52,7 @@ const updateStatusMessage = (status: UpdateStatus, versionInfo: AppVersionInfo |
     case "checking":
       return "正在检查更新…";
     case "available":
-      return `发现新版本 v${status.version}，正在下载…`;
+      return `发现新版本 v${status.version}，可查看更新日志后决定是否下载`;
     case "not-available":
       return "当前已是最新版本";
     case "downloading":
@@ -139,12 +139,23 @@ export default function SettingsWindow(): React.ReactElement {
     setUpdateStatus(status);
   };
 
+  const handleDownloadUpdate = async (): Promise<void> => {
+    const status = await window.todoApi.downloadUpdate();
+    setUpdateStatus(status);
+  };
+
+  const handleDismissUpdate = async (): Promise<void> => {
+    const status = await window.todoApi.dismissUpdate();
+    setUpdateStatus(status);
+  };
+
   const handleQuitAndInstall = (): void => {
     void window.todoApi.quitAndInstall();
   };
 
   const updateMessage = updateStatusMessage(updateStatus, versionInfo);
   const isUpdateBusy = updateStatus.state === "checking" || updateStatus.state === "downloading";
+  const availableNotes = updateStatus.state === "available" ? updateStatus.releaseNotes.trim() : "";
 
   return (
     <main className="settings-window-shell">
@@ -253,15 +264,31 @@ export default function SettingsWindow(): React.ReactElement {
                 <span>当前版本 v{versionInfo?.currentVersion ?? "…"}</span>
               </div>
               <p className="settings-message">{updateMessage}</p>
+              {updateStatus.state === "available" ? (
+                <div className="update-notes" aria-label="更新日志">
+                  {availableNotes ? availableNotes : "暂无更新日志"}
+                </div>
+              ) : null}
               <div className="settings-actions">
-                <button
-                  type="button"
-                  className="settings-action-button"
-                  disabled={!versionInfo?.updateSupported || isUpdateBusy}
-                  onClick={() => void handleCheckForUpdates()}
-                >
-                  {isUpdateBusy ? "请稍候…" : "检查更新"}
-                </button>
+                {updateStatus.state === "available" ? (
+                  <>
+                    <button type="button" className="settings-action-button primary" onClick={() => void handleDownloadUpdate()}>
+                      下载更新
+                    </button>
+                    <button type="button" className="settings-action-button" onClick={() => void handleDismissUpdate()}>
+                      稍后
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="settings-action-button"
+                    disabled={!versionInfo?.updateSupported || isUpdateBusy}
+                    onClick={() => void handleCheckForUpdates()}
+                  >
+                    {isUpdateBusy ? "请稍候…" : "检查更新"}
+                  </button>
+                )}
                 {updateStatus.state === "downloaded" ? (
                   <button type="button" className="settings-action-button primary" onClick={handleQuitAndInstall}>
                     立即重启安装

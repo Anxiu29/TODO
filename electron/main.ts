@@ -19,7 +19,7 @@ import {
   syncDesktopWindowBounds
 } from "./desktop/attachToDesktop";
 import { TodoStore } from "./todoStore";
-import { checkForUpdates, getAppVersionInfo, getUpdateStatus, quitAndInstallUpdate, setupAutoUpdater } from "./updater";
+import { checkForUpdates, dismissUpdate, downloadUpdate, getAppVersionInfo, getUpdateStatus, quitAndInstallUpdate, setupAutoUpdater } from "./updater";
 import type { ShortcutRegistrationResult, TodoDraft, TodoUpdate, WidgetDisplayMode, WindowBounds } from "../src/types/todo";
 
 /** 桌面挂件窗口（无边框透明，可贴桌面或悬浮） */
@@ -53,6 +53,18 @@ let widgetResizeDetached = false;
 
 /** 当前是否处于悬浮模式（手动置顶 或 临时显示） */
 const isFloating = (): boolean => pinnedFloat || temporaryFloat;
+
+/** 快捷添加窗口是否正在显示（用于避免其它窗口抢焦点导致其立即 hide） */
+const isAddTodoWindowOpen = (): boolean =>
+  !!addTodoWindow && !addTodoWindow.isDestroyed() && addTodoWindow.isVisible();
+
+/** 挂件抢焦点前确认不会关掉快捷添加 */
+const focusWidgetIfSafe = (): void => {
+  if (!widgetWindow || isAddTodoWindowOpen()) {
+    return;
+  }
+  widgetWindow.focus();
+};
 
 /** 基础显示模式是否为贴到 Windows 桌面层 */
 const isDesktopDisplayMode = (): boolean => store.getSettings().displayMode === "desktop";
@@ -142,7 +154,7 @@ const showWidgetWindow = (): void => {
     widgetWindow.setMinimizable(false);
     widgetWindow.moveTop();
     widgetWindow.show();
-    widgetWindow.focus();
+    focusWidgetIfSafe();
     return;
   }
 
@@ -152,7 +164,7 @@ const showWidgetWindow = (): void => {
     widgetWindow.setSkipTaskbar(false);
     widgetWindow.moveTop();
     widgetWindow.show();
-    widgetWindow.focus();
+    focusWidgetIfSafe();
     return;
   }
 
@@ -203,8 +215,13 @@ const wakeWidgetForInteraction = (): void => {
     return;
   }
 
+  // 快捷添加打开时勿抢焦点，否则会触发 add 窗口 blur→hide
+  if (isAddTodoWindowOpen()) {
+    return;
+  }
+
   widgetWindow.show();
-  widgetWindow.focus();
+  focusWidgetIfSafe();
 };
 
 /** 桌面固定失败时降级为可交互的普通窗口，避免黑边/无法点击。 */
@@ -221,7 +238,7 @@ const applyNormalWidgetFallback = (bounds?: WindowBounds): void => {
   widgetWindow.setMinimizable(true);
   widgetWindow.setSkipTaskbar(false);
   widgetWindow.show();
-  widgetWindow.focus();
+  focusWidgetIfSafe();
   widgetWindow.webContents.send("desktop-attach:result", false);
 };
 
@@ -306,7 +323,7 @@ const applyWidgetDisplayMode = async (): Promise<void> => {
     widgetWindow.setMinimizable(false);
     widgetWindow.setAlwaysOnTop(true, "floating");
     widgetWindow.show();
-    widgetWindow.focus();
+    focusWidgetIfSafe();
     widgetWindow.moveTop();
     widgetWindow.webContents.send("desktop-attach:result", true);
     return;
@@ -575,8 +592,25 @@ const createAddTodoWindow = async (): Promise<void> => {
     }
   });
 
-  addTodoWindow.on("blur", () => addTodoWindow?.hide());
+  let hideOnBlurTimer: NodeJS.Timeout | undefined;
+
+  addTodoWindow.on("blur", () => {
+    clearTimeout(hideOnBlurTimer);
+    // 短暂延迟：避免 show/focus 竞态或挂件 wake 抢焦点导致刚打开就被关掉
+    hideOnBlurTimer = setTimeout(() => {
+      if (!addTodoWindow || addTodoWindow.isDestroyed() || addTodoWindow.isFocused()) {
+        return;
+      }
+      addTodoWindow.hide();
+    }, 250);
+  });
+
+  addTodoWindow.on("focus", () => {
+    clearTimeout(hideOnBlurTimer);
+  });
+
   addTodoWindow.on("closed", () => {
+    clearTimeout(hideOnBlurTimer);
     addTodoWindow = null;
   });
 
@@ -793,6 +827,8 @@ const registerIpc = (): void => {
   ipcMain.handle("app:getVersion", () => getAppVersionInfo());
   ipcMain.handle("app:getUpdateStatus", () => getUpdateStatus());
   ipcMain.handle("app:checkForUpdates", () => checkForUpdates());
+  ipcMain.handle("app:downloadUpdate", () => downloadUpdate());
+  ipcMain.handle("app:dismissUpdate", () => dismissUpdate());
   ipcMain.handle("app:quitAndInstall", () => quitAndInstallUpdate());
 }
 
@@ -923,7 +959,11 @@ const boot = async (): Promise<void> => {
   await createWidgetWindow();
   registerGlobalShortcuts();
   createTray();
-  setupAutoUpdater();
+  setupAutoUpdater({
+    onUpdateAvailable: () => {
+      void createSettingsWindow();
+    }
+  });
 };
 
 // 须在 requestSingleInstanceLock / TodoStore 之前执行，见 appPaths.ts
