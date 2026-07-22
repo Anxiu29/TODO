@@ -1,6 +1,6 @@
 /* 设计变量：主题由 html[data-theme] 切换，透明度由 --widget-opacity 注入 */
 :root {
-  --widget-opacity: 0.92;
+  --widget-opacity: 0.75;
   --surface: rgba(255, 255, 255, var(--widget-opacity));
   --surface-solid: #ffffff;
   --surface-muted: rgba(248, 250, 252, 0.92);

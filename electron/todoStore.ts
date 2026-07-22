@@ -18,7 +18,9 @@ import {
   normalizeTodoSubtasks,
   normalizeTodoTags,
   normalizeWidgetOpacity,
-  normalizeWidgetTheme
+  normalizeWidgetTheme,
+  WIDGET_OPACITY_DEFAULT,
+  WIDGET_THEME_DEFAULT
 } from "../src/types/todo";
 import type {
   AppSettings,
@@ -44,8 +46,8 @@ export const createEmptyDatabase = (date = todayKey()): TodoDatabase => ({
     launchAtLogin: false,
     shortcut: "CommandOrControl+2",
     showWidgetShortcut: "CommandOrControl+1",
-    theme: "light",
-    widgetOpacity: 0.92
+    theme: WIDGET_THEME_DEFAULT,
+    widgetOpacity: WIDGET_OPACITY_DEFAULT
   }
 });
 

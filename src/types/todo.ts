@@ -6,7 +6,8 @@ export const TODO_RATING_DEFAULT = 1;
 /** 挂件卡片透明度范围 */
 export const WIDGET_OPACITY_MIN = 0.5;
 export const WIDGET_OPACITY_MAX = 1;
-export const WIDGET_OPACITY_DEFAULT = 0.92;
+/** 挂件默认不透明度 75% */
+export const WIDGET_OPACITY_DEFAULT = 0.75;
 
 /** 内置标签：分类互斥，紧急可与任一分类叠加 */
 export const PRESET_TAGS = ["工作", "生活", "学习", "紧急"] as const;
@@ -26,6 +27,8 @@ export type TodoSubtask = {
 
 /** 界面主题 */
 export type WidgetTheme = "light" | "dark";
+/** 默认主题：深色 */
+export const WIDGET_THEME_DEFAULT: WidgetTheme = "dark";
 
 /** 将评分规范化为 1–5 整数；undefined/NaN 时使用默认值 */
 export const normalizeTodoRating = (rating?: number): number => {
@@ -83,7 +86,9 @@ export const normalizeWidgetOpacity = (opacity?: unknown): number => {
   return Math.round(clamped * 100) / 100;
 };
 
-export const normalizeWidgetTheme = (theme?: unknown): WidgetTheme => (theme === "dark" ? "dark" : "light");
+/** 非法/缺失时回退深色；仅显式 light 保留浅色 */
+export const normalizeWidgetTheme = (theme?: unknown): WidgetTheme =>
+  theme === "light" ? "light" : WIDGET_THEME_DEFAULT;
 
 /** 预计完成天数范围 */
 export const DUE_DAYS_MIN = 1;

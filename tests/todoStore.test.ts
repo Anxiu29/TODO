@@ -133,10 +133,13 @@ describe("todo tags and appearance normalize", () => {
 
   it("normalizes theme and opacity", () => {
     expect(normalizeWidgetTheme("dark")).toBe("dark");
-    expect(normalizeWidgetTheme("neon")).toBe("light");
+    expect(normalizeWidgetTheme("light")).toBe("light");
+    expect(normalizeWidgetTheme("neon")).toBe("dark");
+    expect(normalizeWidgetTheme(undefined)).toBe("dark");
     expect(normalizeWidgetOpacity(0.3)).toBe(0.5);
     expect(normalizeWidgetOpacity(1.2)).toBe(1);
     expect(normalizeWidgetOpacity(0.876)).toBe(0.88);
+    expect(normalizeWidgetOpacity(undefined)).toBe(0.75);
   });
 
   it("normalizes dueDays and drops invalid values", () => {

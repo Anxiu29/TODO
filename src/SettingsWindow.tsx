@@ -8,7 +8,7 @@ import { X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type React from "react";
 import type { AppSettings, WidgetDisplayMode, WidgetTheme } from "./types/todo";
-import { WIDGET_OPACITY_MAX, WIDGET_OPACITY_MIN } from "./types/todo";
+import { WIDGET_OPACITY_DEFAULT, WIDGET_OPACITY_MAX, WIDGET_OPACITY_MIN, WIDGET_THEME_DEFAULT } from "./types/todo";
 import type { AppVersionInfo, UpdateStatus } from "./types/update";
 import { parseReleaseNotes } from "./updateNotes";
 
@@ -238,7 +238,7 @@ export default function SettingsWindow(): React.ReactElement {
               </div>
               <select
                 className="settings-select"
-                value={settings?.theme ?? "light"}
+                value={settings?.theme ?? WIDGET_THEME_DEFAULT}
                 disabled={!settings}
                 onChange={(event) => void updateTheme(event.target.value as WidgetTheme)}
               >
@@ -249,7 +249,7 @@ export default function SettingsWindow(): React.ReactElement {
             <label className="settings-option vertical">
               <div>
                 <strong>挂件透明度</strong>
-                <span>当前 {Math.round((settings?.widgetOpacity ?? 0.92) * 100)}%，数值越低越通透。</span>
+                <span>当前 {Math.round((settings?.widgetOpacity ?? WIDGET_OPACITY_DEFAULT) * 100)}%，数值越低越通透。</span>
               </div>
               <input
                 className="settings-range"
@@ -257,7 +257,7 @@ export default function SettingsWindow(): React.ReactElement {
                 min={WIDGET_OPACITY_MIN}
                 max={WIDGET_OPACITY_MAX}
                 step={0.01}
-                value={settings?.widgetOpacity ?? 0.92}
+                value={settings?.widgetOpacity ?? WIDGET_OPACITY_DEFAULT}
                 disabled={!settings}
                 onChange={(event) => void updateWidgetOpacity(Number(event.target.value))}
               />
