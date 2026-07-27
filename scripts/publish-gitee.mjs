@@ -236,7 +236,17 @@ const publishReleaseTag = async (tagName, name, body) => {
   }
 
   const existing = await listAttachFiles(release.id);
-  const existingByName = new Map(existing.map((item) => [item.name, item]));
+  const keepNames = new Set(files);
+
+  // latest 浮动版文件名带版本号，旧 exe 不会被同名覆盖，必须先清掉多余附件，否则会撑爆 1GB 配额
+  for (const item of existing) {
+    if (!keepNames.has(item.name)) {
+      await deleteAttachFile(release.id, item.id, `${item.name}（过期清理）`);
+    }
+  }
+
+  const remaining = await listAttachFiles(release.id);
+  const existingByName = new Map(remaining.map((item) => [item.name, item]));
 
   for (const fileName of files) {
     const filePath = join(releaseDir, fileName);
