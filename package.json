@@ -1,6 +1,6 @@
 {
   "name": "desktop-todo-widget",
-  "version": "0.2.17",
+  "version": "0.2.18",
   "description": "A Windows portable desktop todo widget with global quick add and daily rollover.",
   "private": true,
   "type": "module",
