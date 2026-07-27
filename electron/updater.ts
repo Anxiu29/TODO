@@ -182,9 +182,11 @@ export const dismissUpdate = (): UpdateStatus => {
 const psQuote = (value: string): string => `'${value.replace(/'/g, "''")}'`;
 
 /**
- * 便携版安装：用 PowerShell 覆盖/换名（支持中文文件名）。
- * 旧实现写 .cmd，在中文 Windows 默认代码页下会把「TODO便携版」路径弄乱，
- * copy 失败后仍 start 旧 exe → 版本不变、继续提示更新。
+ * 便携版安装：用独立 PowerShell 覆盖/换名（支持中文文件名）。
+ *
+ * 注意：不能直接 spawn powershell 再 app.quit()——Windows 上 Electron 退出会
+ * 杀掉同进程树里的子进程，脚本在 Sleep 期间就被干掉，表现为「没更新成功」
+ * 且留下 .update-portable.ps1。须经 cmd start 脱离作业对象。
  */
 const installPortableUpdate = (): void => {
   const oldExe = process.env.PORTABLE_EXECUTABLE_FILE;
@@ -195,30 +197,71 @@ const installPortableUpdate = (): void => {
     return;
   }
 
-  // 落到下载包真实文件名（如 TODO便携版-0.2.9.exe），避免一直叫旧的 Desktop-Todo-Widget-0.2.8.exe
+  // 落到下载包真实文件名（如 TODO便携版-x.y.z.exe）
   const finalExe = join(dirname(oldExe), basename(sourceExe));
   const scriptPath = join(dirname(oldExe), ".update-portable.ps1");
-  const script = [
-    "$ErrorActionPreference = 'Stop'",
-    "Start-Sleep -Seconds 2",
-    `Copy-Item -LiteralPath ${psQuote(sourceExe)} -Destination ${psQuote(finalExe)} -Force`,
+  const logPath = join(dirname(oldExe), ".update-portable.log");
+  const removeOld =
     oldExe.toLowerCase() === finalExe.toLowerCase()
       ? ""
-      : `Remove-Item -LiteralPath ${psQuote(oldExe)} -Force -ErrorAction SilentlyContinue`,
-    `Start-Process -FilePath ${psQuote(finalExe)}`,
-    `Remove-Item -LiteralPath ${psQuote(scriptPath)} -Force -ErrorAction SilentlyContinue`
-  ]
-    .filter(Boolean)
-    .join("\r\n");
+      : `  Remove-Item -LiteralPath ${psQuote(oldExe)} -Force -ErrorAction SilentlyContinue\r\n`;
+
+  // 注意：JS 模板里只有 ${...} 会插值；PowerShell 的 $var / $(...) 可原样写出
+  const script = `$ErrorActionPreference = 'Stop'
+$log = ${psQuote(logPath)}
+function Write-UpdateLog([string]$msg) {
+  Add-Content -LiteralPath $log -Value "$(Get-Date -Format o) $msg" -Encoding UTF8
+}
+try {
+  Write-UpdateLog 'start'
+  for ($i = 0; $i -lt 30; $i++) {
+    $busy = Get-Process -ErrorAction SilentlyContinue | Where-Object {
+      $_.Path -and ($_.Path -eq ${psQuote(oldExe)} -or $_.Path -eq ${psQuote(finalExe)})
+    }
+    if (-not $busy) { break }
+    Start-Sleep -Milliseconds 400
+  }
+  Start-Sleep -Seconds 1
+  if (-not (Test-Path -LiteralPath ${psQuote(sourceExe)})) {
+    throw 'pending 文件不存在'
+  }
+  Copy-Item -LiteralPath ${psQuote(sourceExe)} -Destination ${psQuote(finalExe)} -Force
+  Write-UpdateLog 'copied'
+${removeOld}  Start-Process -FilePath ${psQuote(finalExe)}
+  Write-UpdateLog 'started'
+} catch {
+  Write-UpdateLog ("error: " + $_.Exception.Message)
+  exit 1
+} finally {
+  Remove-Item -LiteralPath ${psQuote(scriptPath)} -Force -ErrorAction SilentlyContinue
+}
+`;
 
   // UTF-8 BOM，避免 PowerShell 5.x 把中文路径读成乱码
   writeFileSync(scriptPath, `\uFEFF${script}`, "utf8");
+
+  // cmd start 打开新进程树，避免随 Electron 一起被杀
   spawn(
-    "powershell.exe",
-    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
-    { detached: true, stdio: "ignore" }
+    "cmd.exe",
+    [
+      "/c",
+      "start",
+      "",
+      "/min",
+      "powershell.exe",
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      scriptPath
+    ],
+    { detached: true, stdio: "ignore", windowsHide: true }
   ).unref();
-  app.quit();
+
+  // 稍后再退，确保 start 已拉起
+  setTimeout(() => {
+    app.quit();
+  }, 400);
 };
 
 export const quitAndInstallUpdate = (): void => {
