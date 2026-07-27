@@ -181,10 +181,11 @@ const createRelease = async (tagName, name, body) => {
   });
 };
 
-const updateReleaseMeta = async (releaseId, name, body) => {
+const updateReleaseMeta = async (releaseId, tagName, name, body) => {
+  // Gitee PATCH 要求带 tag_name，否则 400
   return giteeRequest(`/repos/${GITEE_OWNER}/${GITEE_REPO}/releases/${releaseId}`, {
     method: "PATCH",
-    body: { name, body, prerelease: false }
+    body: { tag_name: tagName, name, body, prerelease: false }
   });
 };
 
@@ -233,7 +234,7 @@ const publishReleaseTag = async (tagName, name, body) => {
     release = await createRelease(tagName, name, body);
   } else {
     console.log(`Gitee Release ${tagName} 已存在 (#${release.id})，更新说明并同步附件`);
-    await updateReleaseMeta(release.id, name, body);
+    await updateReleaseMeta(release.id, tagName, name, body);
   }
 
   const existing = await listAttachFiles(release.id);
