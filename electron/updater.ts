@@ -181,16 +181,17 @@ export const dismissUpdate = (): UpdateStatus => {
 /** PowerShell 单引号字符串转义 */
 const psQuote = (value: string): string => `'${value.replace(/'/g, "''")}'`;
 
+/** 路径须为可打印 ASCII，否则 Windows CMD 会把中文路径弄乱 */
+const isCmdSafePath = (value: string): boolean => /^[\x20-\x7e]+$/.test(value);
+
 /**
- * 便携版安装：用 WScript 异步拉起 PowerShell EncodedCommand，再覆盖/换名。
+ * 便携版安装：写 ASCII .cmd，经 `cmd /c start` 脱离 Electron 作业对象后覆盖/换名。
  *
  * 踩过的坑：
- * 1) 直接 spawn powershell 再 quit → 被 Electron Job Object 杀掉
- * 2) `shell:true` + `start "" ... EncodedCommand` → Node/cmd 嵌套引号常把 start 吃掉，脚本根本不跑
- *    （表现为 pending 已下完、无 .update-portable.log、版本不变）
- * 3) 落盘 .ps1 含中文路径时，默认代码页/杀软可能拦
- * 因此：PowerShell 逻辑仍走 EncodedCommand（UTF-16 Base64，路径安全）；
- * 启动器写纯 ASCII 的 .vbs，经 wscript 异步 Run，彻底脱离作业对象。
+ * 1) 直接 spawn 再 quit → 子进程被 Job Object 杀掉
+ * 2) 中文文件名在 Electron 的 process.env 里会乱码（便携版→便携�?），
+ *    不能把「当前 exe 完整路径」写进脚本；发版产物必须用纯 ASCII 名
+ * 3) 旧版中文名迁移：只要求目录为 ASCII，用 PowerShell 按「保留新文件名、删同目录其它 exe」清理
  */
 const installPortableUpdate = (): void => {
   const oldExe = process.env.PORTABLE_EXECUTABLE_FILE;
@@ -201,62 +202,76 @@ const installPortableUpdate = (): void => {
     return;
   }
 
-  const finalExe = join(dirname(oldExe), basename(sourceExe));
-  const logPath = join(dirname(oldExe), ".update-portable.log");
-  /** pending 目录一般为 ASCII，适合落启动器 */
-  const launcherDir = dirname(sourceExe);
-  const vbsPath = join(launcherDir, ".install-portable-update.vbs");
-  const removeOld =
-    oldExe.toLowerCase() === finalExe.toLowerCase()
-      ? ""
-      : `Remove-Item -LiteralPath ${psQuote(oldExe)} -Force -ErrorAction SilentlyContinue; `;
+  const targetDir = dirname(oldExe);
+  const finalExe = join(targetDir, basename(sourceExe));
+  const keepName = basename(finalExe);
+  const logPath = join(targetDir, ".update-portable.log");
+  const cmdPath = join(dirname(sourceExe), "install-portable-update.cmd");
 
-  const psScript = [
-    "$ErrorActionPreference='Stop'",
-    `$log=${psQuote(logPath)}`,
-    "function L($m){Add-Content -LiteralPath $log -Value ((Get-Date -Format o)+' '+$m) -Encoding UTF8}",
-    "try{",
-    "L 'start';",
-    "Start-Sleep -Seconds 3;",
-    `if(-not(Test-Path -LiteralPath ${psQuote(sourceExe)})){throw 'pending missing'};`,
-    `Copy-Item -LiteralPath ${psQuote(sourceExe)} -Destination ${psQuote(finalExe)} -Force;`,
-    "L 'copied';",
-    removeOld,
-    `Start-Process -FilePath ${psQuote(finalExe)};`,
-    "L 'started'",
-    `Remove-Item -LiteralPath ${psQuote(vbsPath)} -Force -ErrorAction SilentlyContinue;`,
-    "}catch{L ('error: '+$_.Exception.Message); exit 1}"
+  // 目录与新包路径必须 ASCII；旧 exe 文件名可含中文（不再写入 cmd）
+  for (const [label, path] of [
+    ["程序目录", targetDir],
+    ["下载缓存", sourceExe],
+    ["目标文件", finalExe],
+    ["日志", logPath],
+    ["启动器", cmdPath]
+  ] as const) {
+    if (!isCmdSafePath(path)) {
+      broadcastStatus({
+        state: "error",
+        message: `${label}路径含非 ASCII 字符，无法自动安装。请把程序放到英文目录，或手动用新版 exe 覆盖`
+      });
+      return;
+    }
+  }
+
+  // 清理同目录其它 exe（兼容旧中文名）；脚本内容仍全 ASCII
+  const cleanupPs = [
+    `$dir=${psQuote(targetDir)}`,
+    `$keep=${psQuote(keepName)}`,
+    "Get-ChildItem -LiteralPath $dir -Filter '*.exe' |",
+    "Where-Object { $_.Name -ne $keep } |",
+    "Remove-Item -Force -ErrorAction SilentlyContinue"
   ].join(" ");
+  const cleanupEncoded = Buffer.from(cleanupPs, "utf16le").toString("base64");
 
-  // PowerShell -EncodedCommand 要求 UTF-16LE Base64（内容仅为 A-Za-z0-9+/=，可进 ASCII VBS）
-  const encoded = Buffer.from(psScript, "utf16le").toString("base64");
-  const vbs = [
-    'Set sh = CreateObject("WScript.Shell")',
-    // 0=隐藏窗口，False=不等待；由 WScript 创建的进程不在 Electron 作业对象内
-    `sh.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}", 0, False`
+  const cmdBody = [
+    "@echo off",
+    "setlocal",
+    `echo %date% %time% start>>"${logPath}"`,
+    // ping 延时，等宿主退出并释放 exe 文件锁
+    "ping -n 4 127.0.0.1 >nul",
+    `if not exist "${sourceExe}" (echo pending missing>>"${logPath}" & exit /b 1)`,
+    `copy /Y "${sourceExe}" "${finalExe}" >nul`,
+    `if errorlevel 1 (echo copy failed>>"${logPath}" & exit /b 1)`,
+    `echo copied>>"${logPath}"`,
+    `powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${cleanupEncoded}`,
+    `echo cleaned>>"${logPath}"`,
+    `start "" "${finalExe}"`,
+    `echo started>>"${logPath}"`,
+    'del /F /Q "%~f0" 2>nul',
+    ""
   ].join("\r\n");
 
   try {
-    // 主进程先落一行，区分「没点安装」与「启动器失败」
     writeFileSync(logPath, `${new Date().toISOString()} launch-requested\n`, "utf8");
-    writeFileSync(vbsPath, vbs, "ascii");
+    writeFileSync(cmdPath, cmdBody, "ascii");
   } catch (error) {
     const message = error instanceof Error ? error.message : "写入更新启动器失败";
     broadcastStatus({ state: "error", message });
     return;
   }
 
-  const child = spawn("wscript.exe", ["//B", "//Nologo", vbsPath], {
+  // start 开新控制台会话，避免随 Electron 作业对象一起被杀
+  spawn(process.env.ComSpec || "cmd.exe", ["/c", "start", "", "/min", cmdPath], {
     detached: true,
     stdio: "ignore",
     windowsHide: true
-  });
-  child.unref();
+  }).unref();
 
-  // 稍等 wscript 完成 CreateProcess，再退出宿主
   setTimeout(() => {
     app.quit();
-  }, 1200);
+  }, 1500);
 };
 
 export const quitAndInstallUpdate = (): void => {

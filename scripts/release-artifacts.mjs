@@ -1,12 +1,9 @@
 /**
- * 发版产物文件名。
- * - 本地打包 / Gitee：中文名（与 package.json build.*.artifactName 一致）
- * - GitHub Release：ASCII 英文名（GitHub 会把非 ASCII 洗成点，导致附件名损坏）
+ * 发版产物文件名（与 package.json build.*.artifactName 一致）。
+ * 必须用纯 ASCII：Electron 在 Windows 下读 process.env / 拼更新脚本时，
+ * 中文文件名会乱码，导致便携版覆盖安装失败。
  */
 export const getReleaseArtifacts = (version) => ({
-  portableExe: `TODO便携版-${version}.exe`,
-  setupExe: `TODO安装版-${version}.exe`,
-  /** 上传 GitHub 时使用的英文别名 */
-  githubPortableExe: `TODO-Portable-${version}.exe`,
-  githubSetupExe: `TODO-Setup-${version}.exe`
+  portableExe: `TODO-Portable-${version}.exe`,
+  setupExe: `TODO-Setup-${version}.exe`
 });
