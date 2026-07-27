@@ -178,20 +178,20 @@ export const dismissUpdate = (): UpdateStatus => {
   return status;
 };
 
-/** PowerShell 单引号字符串转义 */
-const psQuote = (value: string): string => `'${value.replace(/'/g, "''")}'`;
-
-/** 路径须为可打印 ASCII，否则 Windows CMD 会把中文路径弄乱 */
+/** 路径须为可打印 ASCII；VBS/环境变量对非 ASCII 文件名不可靠 */
 const isCmdSafePath = (value: string): boolean => /^[\x20-\x7e]+$/.test(value);
 
+/** VBS 双引号字符串转义 */
+const vbsQuote = (value: string): string => `"${value.replace(/"/g, '""')}"`;
+
 /**
- * 便携版安装：写 ASCII .cmd，经隐藏 WScript 拉起，脱离 Electron 作业对象后覆盖/换名。
+ * 便携版安装：只写纯 ASCII 的 .vbs，用 wscript 静默执行（不经过 cmd/powershell）。
  *
  * 踩过的坑：
- * 1) 直接 spawn 再 quit → 子进程被 Job Object 杀掉
- * 2) 中文文件名在 Electron 的 process.env 里会乱码，不能把旧 exe 完整路径写进脚本
- * 3) `start /min` 会在任务栏留一个最小化黑窗；PowerShell 多语句必须用 `;` 连接
- * 4) 清理时只删本应用的 TODO-Portable-*.exe，绝不能扫目录下全部 exe（用户可能放在 Downloads）
+ * 1) 直接 spawn 再 quit → 被 Electron Job Object 杀掉
+ * 2) 中文文件名在 process.env 里会乱码
+ * 3) `start /min`、隐藏 cmd 里再调 powershell，仍会弹出/残留控制台窗口
+ * 4) 清理只删 TODO-Portable-*.exe，不扫目录下全部 exe
  */
 const installPortableUpdate = (): void => {
   const oldExe = process.env.PORTABLE_EXECUTABLE_FILE;
@@ -206,17 +206,14 @@ const installPortableUpdate = (): void => {
   const finalExe = join(targetDir, basename(sourceExe));
   const keepName = basename(finalExe);
   const logPath = join(targetDir, ".update-portable.log");
-  const pendingDir = dirname(sourceExe);
-  const cmdPath = join(pendingDir, "install-portable-update.cmd");
-  const vbsPath = join(pendingDir, "install-portable-update.vbs");
+  const vbsPath = join(dirname(sourceExe), "install-portable-update.vbs");
 
-  // 目录与新包路径必须 ASCII；旧 exe 文件名可含中文（不再写入 cmd）
   for (const [label, path] of [
     ["程序目录", targetDir],
     ["下载缓存", sourceExe],
     ["目标文件", finalExe],
     ["日志", logPath],
-    ["启动器", cmdPath]
+    ["启动器", vbsPath]
   ] as const) {
     if (!isCmdSafePath(path)) {
       broadcastStatus({
@@ -227,41 +224,45 @@ const installPortableUpdate = (): void => {
     }
   }
 
-  // 仅清理本应用便携包旧版本；语句之间必须用分号（空格拼接会 ParserError）
-  const cleanupPs = [
-    `$dir=${psQuote(targetDir)}`,
-    `$keep=${psQuote(keepName)}`,
-    `Get-ChildItem -LiteralPath $dir -Filter 'TODO-Portable-*.exe' | Where-Object { $_.Name -ne $keep } | Remove-Item -Force -ErrorAction SilentlyContinue`
-  ].join("; ");
-  const cleanupEncoded = Buffer.from(cleanupPs, "utf16le").toString("base64");
-
-  const cmdBody = [
-    "@echo off",
-    "setlocal",
-    `>>"${logPath}" echo %date% %time% start`,
-    // ping 延时，等宿主退出并释放 exe 文件锁
-    "ping -n 4 127.0.0.1 >nul",
-    `if not exist "${sourceExe}" (>>"${logPath}" echo pending missing & exit /b 1)`,
-    `copy /Y "${sourceExe}" "${finalExe}" >nul`,
-    `if errorlevel 1 (>>"${logPath}" echo copy failed & exit /b 1)`,
-    `>>"${logPath}" echo copied`,
-    `powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -EncodedCommand ${cleanupEncoded}`,
-    `>>"${logPath}" echo cleaned`,
-    `start "" "${finalExe}"`,
-    `>>"${logPath}" echo started`,
-    "exit /b 0",
-    ""
-  ].join("\r\n");
-
-  // 窗口样式 0=完全隐藏，不会像 start /min 那样留在任务栏
+  // 全程 FileSystemObject + WScript.Shell，不创建任何控制台子系统进程
   const vbsBody = [
+    "On Error Resume Next",
+    "Dim sh, fso, logFile, folder, f",
     'Set sh = CreateObject("WScript.Shell")',
-    `sh.Run "cmd.exe /c ""${cmdPath}""", 0, False`
+    'Set fso = CreateObject("Scripting.FileSystemObject")',
+    `Set logFile = fso.OpenTextFile(${vbsQuote(logPath)}, 8, True)`,
+    'logFile.WriteLine Now & " start"',
+    "WScript.Sleep 3000",
+    `If Not fso.FileExists(${vbsQuote(sourceExe)}) Then`,
+    '  logFile.WriteLine Now & " pending missing"',
+    "  logFile.Close",
+    "  WScript.Quit 1",
+    "End If",
+    `fso.CopyFile ${vbsQuote(sourceExe)}, ${vbsQuote(finalExe)}, True`,
+    "If Err.Number <> 0 Then",
+    '  logFile.WriteLine Now & " copy failed: " & Err.Description',
+    "  logFile.Close",
+    "  WScript.Quit 1",
+    "End If",
+    'logFile.WriteLine Now & " copied"',
+    `Set folder = fso.GetFolder(${vbsQuote(targetDir)})`,
+    "For Each f In folder.Files",
+    '  If LCase(fso.GetExtensionName(f.Name)) = "exe" Then',
+    `    If Left(f.Name, 13) = "TODO-Portable" And f.Name <> ${vbsQuote(keepName)} Then`,
+    "      f.Delete True",
+    "    End If",
+    "  End If",
+    "Next",
+    'logFile.WriteLine Now & " cleaned"',
+    `sh.Run ${vbsQuote(finalExe)}, 1, False`,
+    'logFile.WriteLine Now & " started"',
+    "logFile.Close",
+    `fso.DeleteFile ${vbsQuote(vbsPath)}, True`,
+    ""
   ].join("\r\n");
 
   try {
     writeFileSync(logPath, `${new Date().toISOString()} launch-requested\n`, "utf8");
-    writeFileSync(cmdPath, cmdBody, "ascii");
     writeFileSync(vbsPath, vbsBody, "ascii");
   } catch (error) {
     const message = error instanceof Error ? error.message : "写入更新启动器失败";
@@ -269,6 +270,7 @@ const installPortableUpdate = (): void => {
     return;
   }
 
+  // //B 无窗口；不经过 cmd/powershell，避免控制台残留在任务栏
   spawn("wscript.exe", ["//B", "//Nologo", vbsPath], {
     detached: true,
     stdio: "ignore",
