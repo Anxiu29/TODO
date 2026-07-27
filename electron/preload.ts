@@ -76,6 +76,8 @@ const api = {
   downloadUpdate: (): Promise<UpdateStatus> => ipcRenderer.invoke("app:downloadUpdate"),
   dismissUpdate: (): Promise<UpdateStatus> => ipcRenderer.invoke("app:dismissUpdate"),
   quitAndInstall: (): Promise<void> => ipcRenderer.invoke("app:quitAndInstall"),
+  /** 用系统浏览器打开白名单外链（发行页下载） */
+  openExternal: (url: string): Promise<void> => ipcRenderer.invoke("app:openExternal", url),
 
   // ── 主进程 → 渲染进程 事件订阅 ─────────────────────────────
   /** 任意窗口修改待办后广播；返回取消订阅函数，组件 unmount 时必须调用 */

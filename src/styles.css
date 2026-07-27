@@ -1291,6 +1291,47 @@ h2 {
   cursor: not-allowed;
 }
 
+/* 发行页入口：展示完整网址，点击用系统浏览器打开 */
+.settings-release-links {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.settings-release-link {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  border: 1px solid var(--accent-border);
+  border-radius: 14px;
+  background: var(--surface-soft);
+  color: var(--text);
+  padding: 10px 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-release-link:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.settings-release-link-label {
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.settings-release-link-url {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  word-break: break-all;
+}
+
 .calendar-card {
   display: flex;
   flex-direction: column;

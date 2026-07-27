@@ -1,12 +1,13 @@
 /**
  * 偏好设置窗口（?view=settings）。
  *
- * 支持：开机自启、显示模式、主题/透明度、录制全局快捷键、应用内更新。
+ * 支持：开机自启、显示模式、主题/透明度、录制全局快捷键、应用内更新、手动下载链接。
  * 快捷键通过 input onKeyDown 捕获键盘事件，转换为 Electron Accelerator 格式后 IPC 注册。
  */
 import { X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import type React from "react";
+import { PROJECT_RELEASE_URLS } from "./constants/projectLinks";
 import type { AppSettings, WidgetDisplayMode, WidgetTheme } from "./types/todo";
 import { WIDGET_OPACITY_DEFAULT, WIDGET_OPACITY_MAX, WIDGET_OPACITY_MIN, WIDGET_THEME_DEFAULT } from "./types/todo";
 import type { AppVersionInfo, UpdateStatus } from "./types/update";
@@ -50,7 +51,9 @@ const eventToShortcut = (event: React.KeyboardEvent<HTMLInputElement>): string =
 const updateStatusMessage = (status: UpdateStatus, versionInfo: AppVersionInfo | null): string => {
   switch (status.state) {
     case "idle":
-      return versionInfo?.updateSupported ? "可检查 GitHub 上的新版本" : "开发模式下无法检查更新";
+      return versionInfo?.updateSupported
+        ? "可检查更新（优先 Gitee，失败回退 GitHub）"
+        : "开发模式下无法检查更新";
     case "checking":
       return "正在检查更新…";
     case "available":
@@ -167,6 +170,11 @@ export default function SettingsWindow(): React.ReactElement {
 
   const handleQuitAndInstall = (): void => {
     void window.todoApi.quitAndInstall();
+  };
+
+  /** 用系统浏览器打开发行页，便于网络差时手动下载 */
+  const handleOpenReleasePage = (url: string): void => {
+    void window.todoApi.openExternal(url);
   };
 
   const updateMessage = updateStatusMessage(updateStatus, versionInfo);
@@ -369,6 +377,30 @@ export default function SettingsWindow(): React.ReactElement {
                     立即重启安装
                   </button>
                 ) : null}
+              </div>
+            </section>
+            <section className="settings-option vertical">
+              <div>
+                <strong>手动下载</strong>
+                <span>应用内更新较慢时，可打开发行页自行下载最新版（推荐国内用 Gitee）</span>
+              </div>
+              <div className="settings-release-links">
+                <button
+                  type="button"
+                  className="settings-release-link"
+                  onClick={() => handleOpenReleasePage(PROJECT_RELEASE_URLS.gitee)}
+                >
+                  <span className="settings-release-link-label">Gitee</span>
+                  <span className="settings-release-link-url">{PROJECT_RELEASE_URLS.gitee}</span>
+                </button>
+                <button
+                  type="button"
+                  className="settings-release-link"
+                  onClick={() => handleOpenReleasePage(PROJECT_RELEASE_URLS.github)}
+                >
+                  <span className="settings-release-link-label">GitHub</span>
+                  <span className="settings-release-link-url">{PROJECT_RELEASE_URLS.github}</span>
+                </button>
               </div>
             </section>
           </section>

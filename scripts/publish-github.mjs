@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnv } from "./load-env.mjs";
@@ -125,58 +125,13 @@ const getRemoteAssets = () => {
   return assets;
 };
 
-/** 取版本号更小的最近一个 v* tag，作为「上一版本」 */
-const getPreviousTag = () => {
-  const result = spawnSync("git", ["tag", "-l", "v*", "--sort=-version:refname"], {
-    cwd: root,
-    encoding: "utf8",
-    windowsHide: true
-  });
-
-  if (result.status !== 0) {
-    throw new Error(`读取 git tag 失败: ${result.stderr || result.stdout}`);
+/** 优先复用 generate-update-yml 写好的日志，避免 GitHub / Gitee / yml 不一致 */
+const loadReleaseNotes = () => {
+  const notesFile = join(releaseDir, "RELEASE_NOTES.generated.md");
+  if (!existsSync(notesFile)) {
+    throw new Error(`缺少 ${notesFile}，请先运行 node scripts/generate-update-yml.mjs`);
   }
-
-  return (
-    result.stdout
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find((name) => name && name !== tag) ?? null
-  );
-};
-
-/**
- * 用上一版本 tag..HEAD 的提交说明生成 Release 正文。
- * 设置页会展示这份日志，故保持「标题 + 列表」结构便于解析。
- */
-const buildReleaseNotesFromCommits = () => {
-  const previousTag = getPreviousTag();
-  const range = previousTag ? `${previousTag}..HEAD` : "HEAD";
-  const result = spawnSync(
-    "git",
-    ["log", range, "--pretty=format:%s", "--no-merges"],
-    {
-      cwd: root,
-      encoding: "utf8",
-      windowsHide: true
-    }
-  );
-
-  if (result.status !== 0) {
-    throw new Error(`读取提交记录失败: ${result.stderr || result.stdout}`);
-  }
-
-  const subjects = result.stdout
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-
-  const title = previousTag ? `相较于 ${previousTag}` : "更新内容";
-  if (subjects.length === 0) {
-    return `${title}\n- 无新的提交说明\n`;
-  }
-
-  return `${title}\n${subjects.map((subject) => `- ${subject}`).join("\n")}\n`;
+  return { notes: readFileSync(notesFile, "utf8"), notesFile };
 };
 
 const ensureRelease = () => {
@@ -184,16 +139,8 @@ const ensureRelease = () => {
     return;
   }
 
-  const notes = buildReleaseNotesFromCommits();
-  const notesFile = join(releaseDir, "RELEASE_NOTES.generated.md");
-  writeFileSync(notesFile, notes, "utf8");
-
-  const previousTag = getPreviousTag();
-  console.log(
-    previousTag
-      ? `使用 ${previousTag}..HEAD 的提交生成更新日志`
-      : "未找到上一版本 tag，使用全部提交生成更新日志"
-  );
+  const { notes, notesFile } = loadReleaseNotes();
+  console.log("使用已生成的更新日志创建 Release");
   console.log(notes);
 
   runGh(

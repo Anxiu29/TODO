@@ -9,8 +9,9 @@
  *
  * 启动顺序：configureUserDataPath → requestSingleInstanceLock → app.whenReady → boot
  */
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen, Tray } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen, shell, Tray } from "electron";
 import { join } from "node:path";
+import { ALLOWED_EXTERNAL_URLS } from "../src/constants/projectLinks";
 import { configureUserDataPath, getAppIconPath, getLoginExecutablePath } from "./appPaths";
 import {
   attachWindowToDesktop,
@@ -874,6 +875,13 @@ const registerIpc = (): void => {
   ipcMain.handle("app:downloadUpdate", () => downloadUpdate());
   ipcMain.handle("app:dismissUpdate", () => dismissUpdate());
   ipcMain.handle("app:quitAndInstall", () => quitAndInstallUpdate());
+  /** 仅允许打开白名单发行页（GitHub / Gitee），用系统浏览器下载最新版 */
+  ipcMain.handle("app:openExternal", async (_event, url: string) => {
+    if (typeof url !== "string" || !ALLOWED_EXTERNAL_URLS.has(url)) {
+      throw new Error("不允许打开该链接");
+    }
+    await shell.openExternal(url);
+  });
 }
 
 /** 两类全局快捷键：唤起添加窗口 / 临时显示挂件 */

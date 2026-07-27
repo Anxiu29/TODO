@@ -8,10 +8,22 @@ import type { AppVersionInfo, UpdateStatus } from "../src/types/update";
 
 const { autoUpdater } = electronUpdater;
 
+/** 国内优先：Gitee latest 浮动发行版；失败再回退 GitHub */
+const GITEE_FEED_URL = "https://gitee.com/anxiu29/TODO/releases/download/latest";
+const GITHUB_FEED = {
+  provider: "github" as const,
+  owner: "Anxiu29",
+  repo: "TODO"
+};
+
 let currentStatus: UpdateStatus = { state: "idle" };
 let portableDownloadedFile: string | null = null;
 /** 同一版本只自动打开一次设置页，避免反复打扰 */
 let promptedAvailableVersion: string | null = null;
+/** 当前更新源；检查失败时从 gitee 切到 github 一次 */
+let activeFeed: "gitee" | "github" = "gitee";
+/** 本轮检查是否已尝试过 GitHub 回退，避免 error 事件循环重试 */
+let githubFallbackAttempted = false;
 
 type SetupOptions = {
   /** 发现新版本且尚未提示过时调用（例如打开设置页展示更新日志） */
@@ -82,6 +94,19 @@ export const getAppVersionInfo = (): AppVersionInfo => ({
 
 export const getUpdateStatus = (): UpdateStatus => currentStatus;
 
+/** 切换更新源；setFeedURL 后需重新设 channel，否则便携版可能读错 yml */
+const applyUpdateFeed = (feed: "gitee" | "github"): void => {
+  activeFeed = feed;
+  if (feed === "gitee") {
+    autoUpdater.setFeedURL({ provider: "generic", url: GITEE_FEED_URL });
+  } else {
+    autoUpdater.setFeedURL(GITHUB_FEED);
+  }
+  if (isPortableApp()) {
+    autoUpdater.channel = "portable";
+  }
+};
+
 export const checkForUpdates = async (): Promise<UpdateStatus> => {
   if (!app.isPackaged) {
     const status: UpdateStatus = { state: "error", message: "开发模式下无法检查更新" };
@@ -89,13 +114,31 @@ export const checkForUpdates = async (): Promise<UpdateStatus> => {
     return status;
   }
 
+  githubFallbackAttempted = false;
+  applyUpdateFeed("gitee");
+
   try {
     broadcastStatus({ state: "checking" });
     await autoUpdater.checkForUpdates();
     return currentStatus;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "检查更新失败";
-    const status: UpdateStatus = { state: "error", message };
+  } catch {
+    // Promise 拒绝时立刻回退；异步 error 事件里也会再兜一层
+    if (!githubFallbackAttempted) {
+      githubFallbackAttempted = true;
+      applyUpdateFeed("github");
+      try {
+        broadcastStatus({ state: "checking" });
+        await autoUpdater.checkForUpdates();
+        return currentStatus;
+      } catch (fallbackError) {
+        const message =
+          fallbackError instanceof Error ? fallbackError.message : "检查更新失败";
+        const status: UpdateStatus = { state: "error", message };
+        broadcastStatus(status);
+        return status;
+      }
+    }
+    const status: UpdateStatus = { state: "error", message: "检查更新失败" };
     broadcastStatus(status);
     return status;
   }
@@ -175,9 +218,11 @@ export const setupAutoUpdater = (options: SetupOptions = {}): void => {
 
   if (isPortableApp()) {
     // 便携版读 portable.yml，避免误下 NSIS 安装包（latest.yml）
-    autoUpdater.channel = "portable";
     autoUpdater.autoInstallOnAppQuit = false;
   }
+
+  // 默认走 Gitee；检查失败再回退 GitHub
+  applyUpdateFeed("gitee");
 
   // 发现更新后先展示日志，由用户决定是否下载
   autoUpdater.autoDownload = false;
@@ -213,6 +258,22 @@ export const setupAutoUpdater = (options: SetupOptions = {}): void => {
   });
 
   autoUpdater.on("error", (error) => {
+    // 仅在「检查」阶段从 Gitee 回退；下载失败不自动换源，避免状态错乱
+    if (
+      activeFeed === "gitee" &&
+      !githubFallbackAttempted &&
+      currentStatus.state === "checking"
+    ) {
+      githubFallbackAttempted = true;
+      console.warn(`Gitee 检查更新失败，回退 GitHub: ${error.message}`);
+      applyUpdateFeed("github");
+      void autoUpdater.checkForUpdates().catch((fallbackError: unknown) => {
+        const message =
+          fallbackError instanceof Error ? fallbackError.message : error.message;
+        broadcastStatus({ state: "error", message });
+      });
+      return;
+    }
     broadcastStatus({ state: "error", message: error.message });
   });
 

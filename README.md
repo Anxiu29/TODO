@@ -2,7 +2,7 @@
 
 一个轻量的 **Windows 桌面待办挂件**：贴在桌面上、全局快捷键快速添加、跨日自动滚动进行中任务，并支持应用内更新。
 
-当前版本：`0.2.6`
+当前版本：`0.2.7`
 
 ## 功能
 
@@ -69,21 +69,32 @@ npm run build        # 类型检查 + 构建到 out/
 npm run dist         # 打包安装版 + 便携版到 release/<version>/
 ```
 
-### 发布到 GitHub Release
+### 发布到 GitHub + Gitee Release
 
-1. 复制 `.env.example` 为 `.env`，填入 `GH_TOKEN`
+发版会同时上传：
+
+| 平台 | 仓库 | 用途 |
+|------|------|------|
+| GitHub | [Anxiu29/TODO](https://github.com/Anxiu29/TODO) | 备用更新源 / 国际访问 |
+| Gitee | [anxiu29/TODO](https://gitee.com/anxiu29/TODO) | **国内优先**更新源 |
+
+1. 复制 `.env.example` 为 `.env`，填入 `GH_TOKEN` 与 `GITEE_TOKEN`
 2. 安装并登录 [GitHub CLI](https://cli.github.com/)
-3. 执行（更新日志自动取「上一版本 tag → 当前」的提交说明）：
+3. 确保代码已推到 Gitee（创建 Release 需要远端能解析到当前 commit）
+4. 执行（更新日志自动取「上一版本 tag → 当前」的提交说明）：
 
 ```bash
 npm run dist:publish
 ```
 
+Gitee 会额外维护一个 `latest` 浮动发行版，供应用内更新拉取；应用会**优先检查 Gitee**，失败再回退 GitHub。  
+注意：安装包约 100MB，若 Gitee 附件大小受限导致上传失败，需在 Gitee 侧提升限额或改用其他国内对象存储。
+
 ## 技术栈
 
 - **Electron** + **electron-vite** + **TypeScript**
 - **React** 渲染四类窗口（`?view=widget|add|calendar|settings`）
-- **electron-updater**：GitHub Release 更新（安装版 / 便携版分 channel）
+- **electron-updater**：优先 Gitee、回退 GitHub（安装版 / 便携版分 channel）
 - **koffi**：调用 Win32 API，实现桌面层附着
 - **Vitest**：纯业务逻辑测试（排序、日切、日历聚合等）
 
