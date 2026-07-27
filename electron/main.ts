@@ -579,9 +579,10 @@ const createAddTodoWindow = async (): Promise<void> => {
   const display = screen.getPrimaryDisplay().workArea;
   addTodoWindow = new BrowserWindow({
     width: 420,
-    height: 178,
+    // 含星级选择行，略高于原先仅标题输入的高度
+    height: 228,
     x: Math.round(display.x + display.width / 2 - 210),
-    y: Math.round(display.y + display.height / 2 - 89),
+    y: Math.round(display.y + display.height / 2 - 114),
     frame: false,
     transparent: true,
     backgroundColor: "#00000000",

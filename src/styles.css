@@ -16,6 +16,10 @@
   --danger-soft: #fee2e2;
   --input-bg: #ffffff;
   --chip-bg: #f0f9ff;
+  /* 星级（浅色 D）：跟主题蓝统一 */
+  --rating: #0369a1;
+  --rating-soft: #e0f2fe;
+  --rating-border: #bae6fd;
   color: var(--text);
   background: transparent;
   font-family:
@@ -40,6 +44,10 @@
   --danger-soft: #7f1d1d;
   --input-bg: #1e293b;
   --chip-bg: #164e63;
+  /* 星级：深色下半透明琥珀底 + 亮金，避免奶油底+纯红 */
+  --rating: #fbbf24;
+  --rating-soft: rgba(251, 191, 36, 0.12);
+  --rating-border: rgba(251, 191, 36, 0.28);
 }
 
 * {
@@ -890,10 +898,10 @@ h2 {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  border: 1px solid #fde68a;
+  border: 1px solid var(--rating-border);
   border-radius: 999px;
-  background: #fffbeb;
-  color: red;
+  background: var(--rating-soft);
+  color: var(--rating);
   font-size: 12px;
   font-weight: 600;
   line-height: 1;
@@ -905,7 +913,9 @@ h2 {
 }
 
 .todo-rating-trigger:hover {
-  background: #fef3c7;
+  border-color: var(--rating);
+  background: var(--rating-soft);
+  filter: brightness(1.08);
 }
 
 .todo-rating-star {
@@ -924,9 +934,9 @@ h2 {
   flex-direction: column;
   gap: 4px;
   min-width: 72px;
-  border: 1px solid #fde68a;
+  border: 1px solid var(--border-strong);
   border-radius: 14px;
-  background: white;
+  background: var(--surface-solid);
   box-shadow: none;
   padding: 6px;
 }
@@ -940,8 +950,8 @@ h2 {
 
 .todo-rating-menu button:hover,
 .todo-rating-menu button.selected {
-  border-color: #fbbf24;
-  background: #fffbeb;
+  border-color: var(--rating-border);
+  background: var(--rating-soft);
 }
 
 .todo-context-menu {
@@ -1065,6 +1075,53 @@ h2 {
 
 .quick-add-card input {
   font-size: 18px;
+}
+
+/* 快捷添加：提交前点选紧急星级，默认五星 */
+.quick-add-rating {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.quick-add-rating-label {
+  color: var(--text-muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.quick-add-rating-stars {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.quick-add-rating-stars button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0;
+  cursor: pointer;
+}
+
+.quick-add-rating-stars button.active {
+  color: var(--rating);
+}
+
+.quick-add-rating-stars button:hover {
+  background: var(--rating-soft);
+  color: var(--rating);
+}
+
+.quick-add-rating-star {
+  width: 18px;
+  height: 18px;
 }
 
 .settings-window-card {

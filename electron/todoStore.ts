@@ -91,7 +91,7 @@ export class TodoStore {
     return buildTodoSnapshot(this.database);
   }
 
-  /** 添加待办；标题 trim 后为空则忽略，默认 rating=1、scheduledDate=今天 */
+  /** 添加待办；标题 trim 后为空则忽略；rating 默认五星，scheduledDate=今天 */
   addTodo(draft: TodoDraft): TodoSnapshot {
     const title = draft.title.trim();
     if (!title) {
@@ -105,7 +105,7 @@ export class TodoStore {
       createdAt: timestamp,
       scheduledDate: todayKey(),
       status: "active",
-      rating: 1,
+      rating: normalizeTodoRating(draft.rating),
       tags: [],
       subtasks: []
     });

@@ -1,7 +1,8 @@
 /** 待办紧急评分范围：1（最低）到 5（最高） */
 export const TODO_RATING_MIN = 1;
 export const TODO_RATING_MAX = 5;
-export const TODO_RATING_DEFAULT = 1;
+/** 新建待办默认五星；缺失/非法评分规范化时也回落到此值 */
+export const TODO_RATING_DEFAULT = 5;
 
 /** 挂件卡片透明度范围 */
 export const WIDGET_OPACITY_MIN = 0.5;
@@ -147,9 +148,11 @@ export type TodoSnapshot = {
   completedToday: Todo[];
 };
 
-/** 新建待办时的输入 */
+/** 新建待办时的输入；rating 省略则用 TODO_RATING_DEFAULT */
 export type TodoDraft = {
   title: string;
+  /** 紧急评分 1–5，可选 */
+  rating?: number;
 };
 
 /** 编辑待办时的可更新字段 */
