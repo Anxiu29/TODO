@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { app, BrowserWindow } from "electron";
 import electronUpdater from "electron-updater";
 import type { UpdateDownloadedEvent, UpdateInfo } from "electron-updater";
@@ -178,26 +178,46 @@ export const dismissUpdate = (): UpdateStatus => {
   return status;
 };
 
+/** PowerShell 单引号字符串转义 */
+const psQuote = (value: string): string => `'${value.replace(/'/g, "''")}'`;
+
+/**
+ * 便携版安装：用 PowerShell 覆盖/换名（支持中文文件名）。
+ * 旧实现写 .cmd，在中文 Windows 默认代码页下会把「TODO便携版」路径弄乱，
+ * copy 失败后仍 start 旧 exe → 版本不变、继续提示更新。
+ */
 const installPortableUpdate = (): void => {
-  const targetExe = process.env.PORTABLE_EXECUTABLE_FILE;
+  const oldExe = process.env.PORTABLE_EXECUTABLE_FILE;
   const sourceExe = portableDownloadedFile;
 
-  if (!targetExe || !sourceExe) {
+  if (!oldExe || !sourceExe) {
     broadcastStatus({ state: "error", message: "未找到已下载的便携版更新文件" });
     return;
   }
 
-  const updaterScript = join(dirname(targetExe), ".update-portable.cmd");
+  // 落到下载包真实文件名（如 TODO便携版-0.2.9.exe），避免一直叫旧的 Desktop-Todo-Widget-0.2.8.exe
+  const finalExe = join(dirname(oldExe), basename(sourceExe));
+  const scriptPath = join(dirname(oldExe), ".update-portable.ps1");
   const script = [
-    "@echo off",
-    "timeout /t 2 /nobreak >nul",
-    `copy /y "${sourceExe}" "${targetExe}"`,
-    `start "" "${targetExe}"`,
-    "del \"%~f0\""
-  ].join("\r\n");
+    "$ErrorActionPreference = 'Stop'",
+    "Start-Sleep -Seconds 2",
+    `Copy-Item -LiteralPath ${psQuote(sourceExe)} -Destination ${psQuote(finalExe)} -Force`,
+    oldExe.toLowerCase() === finalExe.toLowerCase()
+      ? ""
+      : `Remove-Item -LiteralPath ${psQuote(oldExe)} -Force -ErrorAction SilentlyContinue`,
+    `Start-Process -FilePath ${psQuote(finalExe)}`,
+    `Remove-Item -LiteralPath ${psQuote(scriptPath)} -Force -ErrorAction SilentlyContinue`
+  ]
+    .filter(Boolean)
+    .join("\r\n");
 
-  writeFileSync(updaterScript, script, "utf8");
-  spawn("cmd.exe", ["/c", updaterScript], { detached: true, stdio: "ignore" }).unref();
+  // UTF-8 BOM，避免 PowerShell 5.x 把中文路径读成乱码
+  writeFileSync(scriptPath, `\uFEFF${script}`, "utf8");
+  spawn(
+    "powershell.exe",
+    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", scriptPath],
+    { detached: true, stdio: "ignore" }
+  ).unref();
   app.quit();
 };
 
