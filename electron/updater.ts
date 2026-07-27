@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { app, BrowserWindow } from "electron";
 import electronUpdater from "electron-updater";
@@ -181,13 +182,15 @@ export const dismissUpdate = (): UpdateStatus => {
 const psQuote = (value: string): string => `'${value.replace(/'/g, "''")}'`;
 
 /**
- * 便携版安装：经 `start` + `-EncodedCommand` 在独立进程里覆盖/换名。
+ * 便携版安装：用 WScript 异步拉起 PowerShell EncodedCommand，再覆盖/换名。
  *
  * 踩过的坑：
- * 1) 直接 spawn powershell 再 quit → 子进程被 Electron 作业对象杀掉，留下 .ps1 没跑完
- * 2) spawn(cmd, ['start', '', ...]) 参数拆分不可靠
- * 3) -File 依赖磁盘上的 .ps1，编码/杀软都可能拦
- * 因此改为：shell 执行 `start "" powershell -EncodedCommand <base64>`，不落盘脚本。
+ * 1) 直接 spawn powershell 再 quit → 被 Electron Job Object 杀掉
+ * 2) `shell:true` + `start "" ... EncodedCommand` → Node/cmd 嵌套引号常把 start 吃掉，脚本根本不跑
+ *    （表现为 pending 已下完、无 .update-portable.log、版本不变）
+ * 3) 落盘 .ps1 含中文路径时，默认代码页/杀软可能拦
+ * 因此：PowerShell 逻辑仍走 EncodedCommand（UTF-16 Base64，路径安全）；
+ * 启动器写纯 ASCII 的 .vbs，经 wscript 异步 Run，彻底脱离作业对象。
  */
 const installPortableUpdate = (): void => {
   const oldExe = process.env.PORTABLE_EXECUTABLE_FILE;
@@ -200,6 +203,9 @@ const installPortableUpdate = (): void => {
 
   const finalExe = join(dirname(oldExe), basename(sourceExe));
   const logPath = join(dirname(oldExe), ".update-portable.log");
+  /** pending 目录一般为 ASCII，适合落启动器 */
+  const launcherDir = dirname(sourceExe);
+  const vbsPath = join(launcherDir, ".install-portable-update.vbs");
   const removeOld =
     oldExe.toLowerCase() === finalExe.toLowerCase()
       ? ""
@@ -218,23 +224,39 @@ const installPortableUpdate = (): void => {
     removeOld,
     `Start-Process -FilePath ${psQuote(finalExe)};`,
     "L 'started'",
+    `Remove-Item -LiteralPath ${psQuote(vbsPath)} -Force -ErrorAction SilentlyContinue;`,
     "}catch{L ('error: '+$_.Exception.Message); exit 1}"
   ].join(" ");
 
-  // PowerShell -EncodedCommand 要求 UTF-16LE Base64
+  // PowerShell -EncodedCommand 要求 UTF-16LE Base64（内容仅为 A-Za-z0-9+/=，可进 ASCII VBS）
   const encoded = Buffer.from(psScript, "utf16le").toString("base64");
-  const command = `start "" /min powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
+  const vbs = [
+    'Set sh = CreateObject("WScript.Shell")',
+    // 0=隐藏窗口，False=不等待；由 WScript 创建的进程不在 Electron 作业对象内
+    `sh.Run "powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}", 0, False`
+  ].join("\r\n");
 
-  spawn(command, {
+  try {
+    // 主进程先落一行，区分「没点安装」与「启动器失败」
+    writeFileSync(logPath, `${new Date().toISOString()} launch-requested\n`, "utf8");
+    writeFileSync(vbsPath, vbs, "ascii");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "写入更新启动器失败";
+    broadcastStatus({ state: "error", message });
+    return;
+  }
+
+  const child = spawn("wscript.exe", ["//B", "//Nologo", vbsPath], {
     detached: true,
     stdio: "ignore",
-    windowsHide: true,
-    shell: true
-  }).unref();
+    windowsHide: true
+  });
+  child.unref();
 
+  // 稍等 wscript 完成 CreateProcess，再退出宿主
   setTimeout(() => {
     app.quit();
-  }, 600);
+  }, 1200);
 };
 
 export const quitAndInstallUpdate = (): void => {
