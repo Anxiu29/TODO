@@ -4,6 +4,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnv } from "./load-env.mjs";
+import { getReleaseArtifacts } from "./release-artifacts.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 loadEnv();
@@ -23,17 +24,13 @@ const owner = publishConfig.owner;
 const repo = publishConfig.repo;
 const repoSlug = `${owner}/${repo}`;
 const token = process.env.GH_TOKEN;
+const { portableExe, setupExe } = getReleaseArtifacts(version);
 
 /**
  * 先传二进制，最后强制覆盖 yml。
- * yml 体积几乎固定，若只按 size 判断会误跳过，导致校验和与 exe 错配。
+ * 不上传 .blockmap：差量更新非必需，完整下载即可；Source 由 GitHub 按 tag 自动附带，无需我们上传。
  */
-/** 便携版优先上传（项目主推）；安装版与 blockmap 随后 */
-const binaryFiles = [
-  `Desktop-Todo-Widget-${version}.exe`,
-  `Desktop-Todo-Widget-Setup-${version}.exe`,
-  `Desktop-Todo-Widget-Setup-${version}.exe.blockmap`
-];
+const binaryFiles = [portableExe, setupExe];
 const manifestFiles = ["latest.yml", "portable.yml"];
 const files = [...binaryFiles, ...manifestFiles];
 

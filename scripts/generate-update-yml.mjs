@@ -7,12 +7,14 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { getReleaseArtifacts } from "./release-artifacts.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
 const version = pkg.version;
 const tag = `v${version}`;
 const releaseDir = join(root, "release", version);
+const { portableExe, setupExe } = getReleaseArtifacts(version);
 
 const sha512Base64 = (filePath) =>
   createHash("sha512").update(readFileSync(filePath)).digest("base64");
@@ -96,9 +98,6 @@ if (!existsSync(releaseDir)) {
 const releaseNotes = buildReleaseNotes();
 const notesFile = join(releaseDir, "RELEASE_NOTES.generated.md");
 writeFileSync(notesFile, releaseNotes, "utf8");
-
-const setupExe = `Desktop-Todo-Widget-Setup-${version}.exe`;
-const portableExe = `Desktop-Todo-Widget-${version}.exe`;
 
 for (const [ymlName, exeName] of [
   ["latest.yml", setupExe],

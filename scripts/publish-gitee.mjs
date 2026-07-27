@@ -11,6 +11,7 @@ import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnv } from "./load-env.mjs";
+import { getReleaseArtifacts } from "./release-artifacts.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 loadEnv();
@@ -24,13 +25,10 @@ const version = pkg.version;
 const tag = `v${version}`;
 const releaseDir = join(root, "release", version);
 const token = process.env.GITEE_TOKEN;
+const { portableExe, setupExe } = getReleaseArtifacts(version);
 
-/** 便携版优先上传（项目主推）；安装版与 blockmap 随后 */
-const binaryFiles = [
-  `Desktop-Todo-Widget-${version}.exe`,
-  `Desktop-Todo-Widget-Setup-${version}.exe`,
-  `Desktop-Todo-Widget-Setup-${version}.exe.blockmap`
-];
+/** 便携版优先；不上传 blockmap（差量更新非必需） */
+const binaryFiles = [portableExe, setupExe];
 const manifestFiles = ["latest.yml", "portable.yml"];
 const files = [...binaryFiles, ...manifestFiles];
 

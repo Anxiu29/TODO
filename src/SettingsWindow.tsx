@@ -383,7 +383,7 @@ export default function SettingsWindow(): React.ReactElement {
               <div>
                 <strong>手动下载</strong>
                 <span>
-                  主推便携版：下载 <code>Desktop-Todo-Widget-x.y.z.exe</code> 覆盖即可（国内优先 Gitee）
+                  主推便携版：下载 <code>TODO便携版-x.y.z.exe</code> 覆盖即可（国内优先 Gitee）
                 </span>
               </div>
               <div className="settings-release-links">

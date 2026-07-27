@@ -23,9 +23,9 @@ describe("getLoginExecutablePath", () => {
     expect(
       getLoginExecutablePath(
         "C:/Users/a/AppData/Local/Temp/abc/Desktop Todo Widget.exe",
-        "D:/tools/Desktop-Todo-Widget-0.2.0.exe"
+        "D:/tools/TODO便携版-0.2.0.exe"
       )
-    ).toBe("D:/tools/Desktop-Todo-Widget-0.2.0.exe");
+    ).toBe("D:/tools/TODO便携版-0.2.0.exe");
   });
 
   it("falls back to the running exe for install builds", () => {
