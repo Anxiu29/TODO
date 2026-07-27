@@ -491,8 +491,13 @@ export default function App(): React.ReactElement {
 
         <div className="summary-row no-drag">
           <span>{remainingLabel}</span>
-          {/* 打开独立添加窗；全局快捷键仍走同一入口，不依赖挂件内输入框 */}
-          <button type="button" onClick={() => window.todoApi.openAddTodo()}>
+          {/* 打开独立添加窗；当前有标签筛选时新建待办自动带上该标签 */}
+          <button
+            type="button"
+            onClick={() =>
+              window.todoApi.openAddTodo(tagFilter ? { tags: [tagFilter] } : undefined)
+            }
+          >
             添加
           </button>
         </div>

@@ -21,7 +21,9 @@ import {
 } from "./desktop/attachToDesktop";
 import { TodoStore } from "./todoStore";
 import { checkForUpdates, dismissUpdate, downloadUpdate, getAppVersionInfo, getUpdateStatus, quitAndInstallUpdate, setupAutoUpdater } from "./updater";
+import { normalizeTodoTags } from "../src/types/todo";
 import type {
+  QuickAddFocusPayload,
   ShortcutRegistrationResult,
   TodoDraft,
   TodoUpdate,
@@ -34,6 +36,8 @@ import type {
 let widgetWindow: BrowserWindow | null = null;
 /** 全局快捷键唤起的快捷添加浮窗 */
 let addTodoWindow: BrowserWindow | null = null;
+/** 最近一次打开添加窗时预填的标签（挂件筛选上下文）；快捷键唤起时清空 */
+let pendingAddTodoTags: string[] = [];
 /** 完成日历独立窗口 */
 let calendarWindow: BrowserWindow | null = null;
 /** 偏好设置独立窗口 */
@@ -567,22 +571,35 @@ const createWidgetWindow = async (): Promise<void> => {
   setTimeout(revealOnce, 1500);
 };
 
-/** 创建或聚焦快捷添加窗口；失焦自动 hide，不销毁实例以便复用 */
-const createAddTodoWindow = async (): Promise<void> => {
+/** 向快捷添加窗推送聚焦事件，并带上当前预填标签 */
+const sendQuickAddFocus = (): void => {
+  if (!addTodoWindow || addTodoWindow.isDestroyed()) return;
+  const payload: QuickAddFocusPayload = { tags: pendingAddTodoTags };
+  addTodoWindow.webContents.send("quick-add:focus", payload);
+};
+
+/**
+ * 创建或聚焦快捷添加窗口；失焦自动 hide，不销毁实例以便复用。
+ * options.tags：挂件在某标签筛选下「添加」时传入，新建待办会自动带上。
+ */
+const createAddTodoWindow = async (options?: { tags?: string[] }): Promise<void> => {
+  pendingAddTodoTags = normalizeTodoTags(options?.tags);
+
   if (addTodoWindow) {
     addTodoWindow.show();
     addTodoWindow.focus();
-    addTodoWindow.webContents.send("quick-add:focus");
+    sendQuickAddFocus();
     return;
   }
 
   const display = screen.getPrimaryDisplay().workArea;
+  // 含星级、预计天数、可选标签提示与确认按钮
+  const windowHeight = 340;
   addTodoWindow = new BrowserWindow({
     width: 420,
-    // 含星级选择行，略高于原先仅标题输入的高度
-    height: 228,
+    height: windowHeight,
     x: Math.round(display.x + display.width / 2 - 210),
-    y: Math.round(display.y + display.height / 2 - 114),
+    y: Math.round(display.y + display.height / 2 - windowHeight / 2),
     frame: false,
     transparent: true,
     backgroundColor: "#00000000",
@@ -627,7 +644,7 @@ const createAddTodoWindow = async (): Promise<void> => {
   addTodoWindow.once("ready-to-show", () => {
     addTodoWindow?.show();
     addTodoWindow?.focus();
-    addTodoWindow?.webContents.send("quick-add:focus");
+    sendQuickAddFocus();
   });
 };
 
@@ -830,7 +847,9 @@ const registerIpc = (): void => {
   ipcMain.handle("settings:setWidgetOpacity", (_event, opacity: number) => applySettings(store.setWidgetOpacity(opacity)));
   ipcMain.handle("settings:setShortcut", (_event, shortcut: string) => updateShortcut("quickAdd", shortcut));
   ipcMain.handle("settings:setShowWidgetShortcut", (_event, shortcut: string) => updateShortcut("showWidget", shortcut));
-  ipcMain.handle("windows:openAddTodo", () => createAddTodoWindow());
+  ipcMain.handle("windows:openAddTodo", (_event, options?: { tags?: string[] }) =>
+    createAddTodoWindow(options)
+  );
   ipcMain.handle("windows:openCalendar", () => createCalendarWindow());
   ipcMain.handle("windows:openSettings", () => createSettingsWindow());
   ipcMain.handle("windows:closeCurrent", (event) => BrowserWindow.fromWebContents(event.sender)?.hide());

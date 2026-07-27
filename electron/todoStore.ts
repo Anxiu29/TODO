@@ -91,7 +91,7 @@ export class TodoStore {
     return buildTodoSnapshot(this.database);
   }
 
-  /** 添加待办；标题 trim 后为空则忽略；rating 默认五星，scheduledDate=今天 */
+  /** 添加待办；标题 trim 后为空则忽略；rating 默认五星，scheduledDate=今天；tags/dueDays 经 normalize */
   addTodo(draft: TodoDraft): TodoSnapshot {
     const title = draft.title.trim();
     if (!title) {
@@ -99,6 +99,7 @@ export class TodoStore {
     }
 
     const timestamp = nowIso();
+    const dueDays = normalizeDueDays(draft.dueDays);
     this.database.todos.push({
       id: randomUUID(),
       title,
@@ -106,8 +107,10 @@ export class TodoStore {
       scheduledDate: todayKey(),
       status: "active",
       rating: normalizeTodoRating(draft.rating),
-      tags: [],
-      subtasks: []
+      tags: normalizeTodoTags(draft.tags),
+      subtasks: [],
+      // 未设置预计天数时不写字段，保持与右键清除后的存储形态一致
+      ...(dueDays !== undefined ? { dueDays } : {})
     });
     this.save();
     return this.getSnapshot();

@@ -1,6 +1,11 @@
+/**
+ * 发布到 GitHub Release。
+ * GitHub 会把附件名中的非 ASCII 洗成点，故上传前将中文 exe 复制为英文别名，
+ * 并生成指向英文文件名的 yml，避免更新源与附件不一致。
+ */
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEnv } from "./load-env.mjs";
@@ -20,17 +25,19 @@ if (!publishConfig || publishConfig.provider !== "github") {
 const version = pkg.version;
 const tag = `v${version}`;
 const releaseDir = join(root, "release", version);
+/** GitHub 专用 staging：英文文件名 + 改写后的 yml */
+const githubStageDir = join(releaseDir, ".github-upload");
 const owner = publishConfig.owner;
 const repo = publishConfig.repo;
 const repoSlug = `${owner}/${repo}`;
 const token = process.env.GH_TOKEN;
-const { portableExe, setupExe } = getReleaseArtifacts(version);
+const { portableExe, setupExe, githubPortableExe, githubSetupExe } = getReleaseArtifacts(version);
 
 /**
  * 先传二进制，最后强制覆盖 yml。
  * 不上传 .blockmap：差量更新非必需，完整下载即可；Source 由 GitHub 按 tag 自动附带，无需我们上传。
  */
-const binaryFiles = [portableExe, setupExe];
+const binaryFiles = [githubPortableExe, githubSetupExe];
 const manifestFiles = ["latest.yml", "portable.yml"];
 const files = [...binaryFiles, ...manifestFiles];
 
@@ -147,11 +154,45 @@ const ensureRelease = () => {
   );
 };
 
+/**
+ * 将中文打包产物复制为英文名，并把 yml 里的 url/path 改成英文，
+ * 写入 .github-upload/，供实际上传使用。
+ */
+const prepareGithubUploadDir = () => {
+  mkdirSync(githubStageDir, { recursive: true });
+
+  const pairs = [
+    [portableExe, githubPortableExe],
+    [setupExe, githubSetupExe]
+  ];
+
+  for (const [sourceName, targetName] of pairs) {
+    const sourcePath = join(releaseDir, sourceName);
+    if (!existsSync(sourcePath)) {
+      throw new Error(`缺少 ${sourceName}，请先 npm run dist`);
+    }
+    copyFileSync(sourcePath, join(githubStageDir, targetName));
+    console.log(`GitHub 别名: ${sourceName} -> ${targetName}`);
+  }
+
+  const rewriteYml = (ymlName, fromExe, toExe) => {
+    const sourceYml = join(releaseDir, ymlName);
+    if (!existsSync(sourceYml)) {
+      throw new Error(`缺少 ${ymlName}，请先运行 node scripts/generate-update-yml.mjs`);
+    }
+    const rewritten = readFileSync(sourceYml, "utf8").split(fromExe).join(toExe);
+    writeFileSync(join(githubStageDir, ymlName), rewritten, "utf8");
+  };
+
+  rewriteYml("latest.yml", setupExe, githubSetupExe);
+  rewriteYml("portable.yml", portableExe, githubPortableExe);
+};
+
 const pickFilesToUpload = (remoteAssets) => {
   const pending = [];
 
   for (const fileName of files) {
-    const filePath = join(releaseDir, fileName);
+    const filePath = join(githubStageDir, fileName);
     const localSize = statSync(filePath).size;
     const remote = remoteAssets.get(fileName);
     const isManifest = manifestFiles.includes(fileName);
@@ -196,7 +237,7 @@ const uploadFiles = (pending) => {
   console.log(`共 ${pending.length} 个文件待上传，逐个上传以避免卡死。`);
 
   for (const fileName of pending) {
-    const filePath = join(releaseDir, fileName);
+    const filePath = join(githubStageDir, fileName);
     const size = statSync(filePath).size;
     console.log(`\n开始上传 ${fileName} (${formatSize(size)})...`);
     runGh(
@@ -204,6 +245,39 @@ const uploadFiles = (pending) => {
       `上传 ${fileName}`
     );
     console.log(`完成 ${fileName}`);
+  }
+};
+
+/** 清理历史中文名被洗成 TODO.-*.exe 的残留附件，避免页面上两个坏掉的同名包 */
+const cleanupLegacyMangledAssets = () => {
+  const result = spawnSync(
+    "gh",
+    [
+      "api",
+      `repos/${owner}/${repo}/releases/tags/${tag}`,
+      "--jq",
+      ".assets[] | select(.name | test(\"^TODO\\\\.\")) | [.id, .name] | @tsv"
+    ],
+    {
+      env: ghEnv,
+      encoding: "utf8",
+      windowsHide: true
+    }
+  );
+
+  if (result.status !== 0 || !result.stdout.trim()) {
+    return;
+  }
+
+  for (const line of result.stdout.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    const [id, name] = line.split("\t");
+    if (!id || !name) continue;
+    console.log(`删除 GitHub 残留坏文件名附件: ${name}`);
+    runGh(
+      ["api", "-X", "DELETE", `repos/${owner}/${repo}/releases/assets/${id}`],
+      `删除 ${name}`
+    );
   }
 };
 
@@ -219,9 +293,10 @@ const main = () => {
     process.exit(1);
   }
 
-  const missing = files.filter((fileName) => !existsSync(join(releaseDir, fileName)));
+  const requiredLocal = [portableExe, setupExe, ...manifestFiles];
+  const missing = requiredLocal.filter((fileName) => !existsSync(join(releaseDir, fileName)));
   if (missing.length > 0) {
-    console.error("缺少以下文件，请先重新打包:");
+    console.error("缺少以下文件，请先重新打包并生成 yml:");
     for (const fileName of missing) {
       console.error(`- ${fileName}`);
     }
@@ -229,8 +304,10 @@ const main = () => {
   }
 
   ensureGh();
-  console.log(`发布 ${tag} 到 ${repoSlug}`);
+  console.log(`发布 ${tag} 到 ${repoSlug}（附件使用英文文件名）`);
+  prepareGithubUploadDir();
   ensureRelease();
+  cleanupLegacyMangledAssets();
 
   const remoteAssets = getRemoteAssets();
   const pending = pickFilesToUpload(remoteAssets);

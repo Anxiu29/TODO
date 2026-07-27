@@ -1,10 +1,18 @@
 /**
  * 待办标签展示与编辑。
  * - chips：列表内只读展示已有标签
- * - editor：右键菜单内切换预设标签（分类互斥，紧急可叠加）
+ * - editor：右键菜单内切换预设标签，并支持添加自定义标签
  */
+import { useState } from "react";
 import type React from "react";
-import { PRESET_TAGS, URGENT_TAG } from "./types/todo";
+import {
+  CUSTOM_TAG_MAX_LEN,
+  isCategoryTag,
+  isPresetTag,
+  normalizeTodoTags,
+  PRESET_TAGS,
+  URGENT_TAG
+} from "./types/todo";
 
 /** 标签名 → CSS 色调后缀，用于 .todo-tag-* 样式 */
 export const tagTone = (tag: string): string => {
@@ -41,28 +49,57 @@ type TodoTagEditorProps = {
 
 /**
  * 右键菜单内标签编辑。
- * 工作/生活/学习互斥；「紧急」可与任一分类并存。
+ * 工作/生活/学习互斥；「紧急」与自定义可叠加；底部可新增自定义标签。
  */
 export function TodoTagEditor({ tags, onChange }: TodoTagEditorProps): React.ReactElement {
-  const toggleTag = (tag: string): void => {
-    const hasUrgent = tags.includes(URGENT_TAG);
-    const category = tags.find((item) => item !== URGENT_TAG);
+  const [customDraft, setCustomDraft] = useState("");
 
+  /** 已挂在待办上、且非预设的自定义标签，便于再次点选取消 */
+  const customTags = tags.filter((tag) => !isPresetTag(tag));
+
+  const toggleTag = (tag: string): void => {
     if (tag === URGENT_TAG) {
-      if (hasUrgent) {
-        onChange(category ? [category] : []);
+      onChange(
+        tags.includes(URGENT_TAG) ? tags.filter((item) => item !== URGENT_TAG) : [...tags, URGENT_TAG]
+      );
+      return;
+    }
+
+    if (isCategoryTag(tag)) {
+      const withoutCategories = tags.filter((item) => !isCategoryTag(item));
+      // 再点同一分类则取消；换分类则替换，保留紧急与自定义
+      if (tags.includes(tag)) {
+        onChange(withoutCategories);
         return;
       }
-      onChange(category ? [category, URGENT_TAG] : [URGENT_TAG]);
+      onChange(normalizeTodoTags([tag, ...withoutCategories]));
       return;
     }
 
-    // 分类：再点一次取消；换分类则替换，保留紧急
-    if (category === tag) {
-      onChange(hasUrgent ? [URGENT_TAG] : []);
+    // 自定义：点选切换
+    if (tags.includes(tag)) {
+      onChange(tags.filter((item) => item !== tag));
       return;
     }
-    onChange(hasUrgent ? [tag, URGENT_TAG] : [tag]);
+    onChange(normalizeTodoTags([...tags, tag]));
+  };
+
+  const addCustomTag = (event: React.FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    const tag = customDraft.trim();
+    if (!tag) return;
+    // 与预设重名时走预设 toggle 语义（分类互斥 / 紧急叠加）
+    if (isPresetTag(tag)) {
+      toggleTag(tag);
+      setCustomDraft("");
+      return;
+    }
+    if (tags.includes(tag)) {
+      setCustomDraft("");
+      return;
+    }
+    onChange(normalizeTodoTags([...tags, tag]));
+    setCustomDraft("");
   };
 
   return (
@@ -81,7 +118,28 @@ export function TodoTagEditor({ tags, onChange }: TodoTagEditorProps): React.Rea
             </button>
           );
         })}
+        {customTags.map((tag) => (
+          <button
+            key={tag}
+            type="button"
+            className={`todo-tag todo-tag-${tagTone(tag)} selected`}
+            onClick={() => toggleTag(tag)}
+            title="再次点击可移除"
+          >
+            {tag}
+          </button>
+        ))}
       </div>
+      <form className="todo-tags-custom" onSubmit={addCustomTag}>
+        <input
+          value={customDraft}
+          onChange={(event) => setCustomDraft(event.target.value)}
+          placeholder="自定义标签…"
+          aria-label="自定义标签"
+          maxLength={CUSTOM_TAG_MAX_LEN}
+        />
+        <button type="submit">添加</button>
+      </form>
     </div>
   );
 }

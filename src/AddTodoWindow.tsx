@@ -2,25 +2,40 @@
  * 添加待办窗口（?view=add）。
  *
  * 可由挂件「添加」按钮或全局快捷键唤起。
- * 特点：失焦自动隐藏、Enter 提交后关闭、Escape 关闭、
+ * 特点：失焦自动隐藏、Enter / 确认按钮提交后关闭、Escape 关闭、
  * 再次按快捷键时通过 quick-add:focus 事件重新聚焦输入框；
- * 提交前可点选星级，默认五星。
+ * 提交前可点选星级（默认五星）、可选预计天数；
+ * 若从某标签筛选下打开则自动带上该标签。
  */
 import { Star, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type React from "react";
-import { TODO_RATING_DEFAULT, TODO_RATING_MAX, TODO_RATING_MIN } from "./types/todo";
+import { TodoTagChips } from "./TodoTags";
+import {
+  DUE_DAYS_MAX,
+  DUE_DAYS_MIN,
+  normalizeDueDays,
+  TODO_RATING_DEFAULT,
+  TODO_RATING_MAX,
+  TODO_RATING_MIN
+} from "./types/todo";
 
 export default function AddTodoWindow(): React.ReactElement {
   const [title, setTitle] = useState("");
   /** 新建默认五星，可在提交前点选 */
   const [rating, setRating] = useState(TODO_RATING_DEFAULT);
+  /** 打开窗口时由主进程传入；挂件在标签筛选下添加会带上该标签 */
+  const [tags, setTags] = useState<string[]>([]);
+  /** 预计天数草稿；空字符串表示不设置 */
+  const [dueDaysDraft, setDueDaysDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    /** 每次唤起：恢复默认五星，并延迟聚焦输入框 */
-    const focusInput = (): void => {
+    /** 每次唤起：同步预填标签、恢复默认星级/天数，并延迟聚焦输入框 */
+    const focusInput = (payload?: { tags?: string[] }): void => {
+      setTags(Array.isArray(payload?.tags) ? payload.tags : []);
       setRating(TODO_RATING_DEFAULT);
+      setDueDaysDraft("");
       window.setTimeout(() => {
         inputRef.current?.focus();
         inputRef.current?.select();
@@ -48,9 +63,17 @@ export default function AddTodoWindow(): React.ReactElement {
     const value = title.trim();
     if (!value) return;
 
-    await window.todoApi.addTodo({ title: value, rating });
+    const dueDays = normalizeDueDays(dueDaysDraft);
+    await window.todoApi.addTodo({
+      title: value,
+      rating,
+      tags,
+      ...(dueDays !== undefined ? { dueDays } : {})
+    });
     setTitle("");
     setRating(TODO_RATING_DEFAULT);
+    setTags([]);
+    setDueDaysDraft("");
     await window.todoApi.closeCurrentWindow();
   };
 
@@ -77,7 +100,14 @@ export default function AddTodoWindow(): React.ReactElement {
             <X aria-hidden className="button-icon" strokeWidth={2} />
           </button>
         </header>
-        <div className="quick-add-rating" role="group" aria-label="紧急评分">
+        {/* 从某个标签筛选进入时提示将自动带上该标签 */}
+        {tags.length > 0 ? (
+          <div className="quick-add-tags no-drag" aria-label="将添加的标签">
+            <span className="quick-add-tags-label">标签</span>
+            <TodoTagChips tags={tags} />
+          </div>
+        ) : null}
+        <div className="quick-add-rating no-drag" role="group" aria-label="紧急评分">
           <span className="quick-add-rating-label">紧急</span>
           <div className="quick-add-rating-stars">
             {ratingOptions.map((value) => {
@@ -103,13 +133,34 @@ export default function AddTodoWindow(): React.ReactElement {
             })}
           </div>
         </div>
+        <div className="quick-add-due no-drag">
+          <span className="quick-add-due-label">预计</span>
+          <input
+            className="quick-add-due-input"
+            type="number"
+            min={DUE_DAYS_MIN}
+            max={DUE_DAYS_MAX}
+            inputMode="numeric"
+            value={dueDaysDraft}
+            placeholder="可选"
+            aria-label="预计几天完成"
+            onChange={(event) => setDueDaysDraft(event.target.value)}
+          />
+          <span className="quick-add-due-unit">天</span>
+        </div>
         <input
+          className="quick-add-title-input no-drag"
           ref={inputRef}
           value={title}
           onChange={(event) => setTitle(event.target.value)}
-          placeholder="输入后按 Enter 添加"
+          placeholder="输入待办标题"
           aria-label="新的待办事项"
         />
+        <div className="quick-add-actions no-drag">
+          <button type="submit" className="quick-add-confirm" disabled={!title.trim()}>
+            确认添加
+          </button>
+        </div>
       </form>
     </main>
   );

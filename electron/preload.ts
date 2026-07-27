@@ -7,6 +7,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
   AppSettings,
+  QuickAddFocusPayload,
   ShortcutRegistrationResult,
   TodoCalendarDay,
   TodoDraft,
@@ -59,7 +60,9 @@ const api = {
     ipcRenderer.invoke("settings:setShowWidgetShortcut", shortcut),
 
   // ── 窗口控制 ──────────────────────────────────────────────
-  openAddTodo: (): Promise<void> => ipcRenderer.invoke("windows:openAddTodo"),
+  /** 打开快捷添加；可传入初始标签（如当前筛选标签） */
+  openAddTodo: (options?: { tags?: string[] }): Promise<void> =>
+    ipcRenderer.invoke("windows:openAddTodo", options),
   openCalendar: (): Promise<void> => ipcRenderer.invoke("windows:openCalendar"),
   openSettings: (): Promise<void> => ipcRenderer.invoke("windows:openSettings"),
   /** 隐藏当前窗口（快捷添加窗口 blur 时也走此通道） */
@@ -103,9 +106,10 @@ const api = {
     ipcRenderer.on("widget:float-state-changed", listener);
     return () => ipcRenderer.removeListener("widget:float-state-changed", listener);
   },
-  /** 快捷添加窗口被再次唤起时聚焦输入框 */
-  onQuickAddFocus: (callback: () => void): (() => void) => {
-    const listener = (): void => callback();
+  /** 快捷添加窗口被再次唤起时聚焦输入框，并同步预填标签 */
+  onQuickAddFocus: (callback: (payload: QuickAddFocusPayload) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: QuickAddFocusPayload): void =>
+      callback(payload ?? { tags: [] });
     ipcRenderer.on("quick-add:focus", listener);
     return () => ipcRenderer.removeListener("quick-add:focus", listener);
   },

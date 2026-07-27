@@ -10,12 +10,16 @@ export const WIDGET_OPACITY_MAX = 1;
 /** 挂件默认不透明度 75% */
 export const WIDGET_OPACITY_DEFAULT = 0.75;
 
-/** 内置标签：分类互斥，紧急可与任一分类叠加 */
+/** 内置标签：分类互斥，紧急可与任一分类/自定义叠加 */
 export const PRESET_TAGS = ["工作", "生活", "学习", "紧急"] as const;
 /** 分类标签（每条待办至多一个） */
 export const CATEGORY_TAGS = ["工作", "生活", "学习"] as const;
 /** 可与分类并存的特殊标签 */
 export const URGENT_TAG = "紧急";
+/** 自定义标签最大字符数（trim 后截断） */
+export const CUSTOM_TAG_MAX_LEN = 12;
+/** 单条待办最多标签数（含分类、紧急、自定义） */
+export const TODO_TAGS_MAX = 6;
 
 export type TodoStatus = "active" | "completed";
 
@@ -37,28 +41,53 @@ export const normalizeTodoRating = (rating?: number): number => {
   return Math.min(TODO_RATING_MAX, Math.max(TODO_RATING_MIN, Math.round(rating)));
 };
 
-/** 规范化标签：仅预设；分类至多一个（取首次出现）；紧急可并存 */
+/** 是否为内置分类标签 */
+export const isCategoryTag = (tag: string): boolean =>
+  (CATEGORY_TAGS as readonly string[]).includes(tag);
+
+/** 是否为内置预设标签（分类或紧急） */
+export const isPresetTag = (tag: string): boolean =>
+  (PRESET_TAGS as readonly string[]).includes(tag);
+
+/**
+ * 规范化标签：分类至多一个（取首次出现）；紧急可并存；
+ * 其余视为自定义（去重、截断长度、总数上限）。
+ */
 export const normalizeTodoTags = (tags?: unknown): string[] => {
   if (!Array.isArray(tags)) return [];
-  const allowed = new Set<string>(PRESET_TAGS);
-  const categories = new Set<string>(CATEGORY_TAGS);
   let category: string | null = null;
   let urgent = false;
+  const customs: string[] = [];
+  const seenCustom = new Set<string>();
+
   for (const raw of tags) {
     if (typeof raw !== "string") continue;
-    const tag = raw.trim();
-    if (!tag || !allowed.has(tag)) continue;
+    const tag = raw.trim().slice(0, CUSTOM_TAG_MAX_LEN);
+    if (!tag) continue;
     if (tag === URGENT_TAG) {
       urgent = true;
       continue;
     }
     // 脏数据里多个分类时保留第一个，避免加载后语义漂移
-    if (categories.has(tag) && !category) category = tag;
+    if (isCategoryTag(tag)) {
+      if (!category) category = tag;
+      continue;
+    }
+    if (!seenCustom.has(tag)) {
+      seenCustom.add(tag);
+      customs.push(tag);
+    }
   }
+
   const result: string[] = [];
   if (category) result.push(category);
+  for (const custom of customs) {
+    // 预留「紧急」一位，避免自定义把上限占满后紧急被挤掉
+    if (result.length >= TODO_TAGS_MAX - (urgent ? 1 : 0)) break;
+    result.push(custom);
+  }
   if (urgent) result.push(URGENT_TAG);
-  return result;
+  return result.slice(0, TODO_TAGS_MAX);
 };
 
 /** 规范化子任务列表 */
@@ -120,7 +149,7 @@ export type Todo = {
   status: TodoStatus;
   /** 紧急程度 1–5，影响列表排序 */
   rating: number;
-  /** 标签：至多一个分类（工作/生活/学习），可另加「紧急」 */
+  /** 标签：至多一个分类（工作/生活/学习），可另加「紧急」与自定义标签 */
   tags: string[];
   /** 子任务列表 */
   subtasks: TodoSubtask[];
@@ -153,6 +182,16 @@ export type TodoDraft = {
   title: string;
   /** 紧急评分 1–5，可选 */
   rating?: number;
+  /** 初始标签；省略则为空。挂件在某标签筛选下添加时会带上该标签 */
+  tags?: string[];
+  /** 预计几天完成；省略或非法则不写入 */
+  dueDays?: number;
+};
+
+/** 快捷添加窗口唤起时携带的上下文（主进程 → 渲染进程） */
+export type QuickAddFocusPayload = {
+  /** 打开时预填的标签；无筛选时为空数组 */
+  tags: string[];
 };
 
 /** 编辑待办时的可更新字段 */
