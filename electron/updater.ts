@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import { writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { app, BrowserWindow } from "electron";
 import electronUpdater from "electron-updater";
@@ -182,11 +181,13 @@ export const dismissUpdate = (): UpdateStatus => {
 const psQuote = (value: string): string => `'${value.replace(/'/g, "''")}'`;
 
 /**
- * 便携版安装：用独立 PowerShell 覆盖/换名（支持中文文件名）。
+ * 便携版安装：经 `start` + `-EncodedCommand` 在独立进程里覆盖/换名。
  *
- * 注意：不能直接 spawn powershell 再 app.quit()——Windows 上 Electron 退出会
- * 杀掉同进程树里的子进程，脚本在 Sleep 期间就被干掉，表现为「没更新成功」
- * 且留下 .update-portable.ps1。须经 cmd start 脱离作业对象。
+ * 踩过的坑：
+ * 1) 直接 spawn powershell 再 quit → 子进程被 Electron 作业对象杀掉，留下 .ps1 没跑完
+ * 2) spawn(cmd, ['start', '', ...]) 参数拆分不可靠
+ * 3) -File 依赖磁盘上的 .ps1，编码/杀软都可能拦
+ * 因此改为：shell 执行 `start "" powershell -EncodedCommand <base64>`，不落盘脚本。
  */
 const installPortableUpdate = (): void => {
   const oldExe = process.env.PORTABLE_EXECUTABLE_FILE;
@@ -197,71 +198,43 @@ const installPortableUpdate = (): void => {
     return;
   }
 
-  // 落到下载包真实文件名（如 TODO便携版-x.y.z.exe）
   const finalExe = join(dirname(oldExe), basename(sourceExe));
-  const scriptPath = join(dirname(oldExe), ".update-portable.ps1");
   const logPath = join(dirname(oldExe), ".update-portable.log");
   const removeOld =
     oldExe.toLowerCase() === finalExe.toLowerCase()
       ? ""
-      : `  Remove-Item -LiteralPath ${psQuote(oldExe)} -Force -ErrorAction SilentlyContinue\r\n`;
+      : `Remove-Item -LiteralPath ${psQuote(oldExe)} -Force -ErrorAction SilentlyContinue; `;
 
-  // 注意：JS 模板里只有 ${...} 会插值；PowerShell 的 $var / $(...) 可原样写出
-  const script = `$ErrorActionPreference = 'Stop'
-$log = ${psQuote(logPath)}
-function Write-UpdateLog([string]$msg) {
-  Add-Content -LiteralPath $log -Value "$(Get-Date -Format o) $msg" -Encoding UTF8
-}
-try {
-  Write-UpdateLog 'start'
-  for ($i = 0; $i -lt 30; $i++) {
-    $busy = Get-Process -ErrorAction SilentlyContinue | Where-Object {
-      $_.Path -and ($_.Path -eq ${psQuote(oldExe)} -or $_.Path -eq ${psQuote(finalExe)})
-    }
-    if (-not $busy) { break }
-    Start-Sleep -Milliseconds 400
-  }
-  Start-Sleep -Seconds 1
-  if (-not (Test-Path -LiteralPath ${psQuote(sourceExe)})) {
-    throw 'pending 文件不存在'
-  }
-  Copy-Item -LiteralPath ${psQuote(sourceExe)} -Destination ${psQuote(finalExe)} -Force
-  Write-UpdateLog 'copied'
-${removeOld}  Start-Process -FilePath ${psQuote(finalExe)}
-  Write-UpdateLog 'started'
-} catch {
-  Write-UpdateLog ("error: " + $_.Exception.Message)
-  exit 1
-} finally {
-  Remove-Item -LiteralPath ${psQuote(scriptPath)} -Force -ErrorAction SilentlyContinue
-}
-`;
+  const psScript = [
+    "$ErrorActionPreference='Stop'",
+    `$log=${psQuote(logPath)}`,
+    "function L($m){Add-Content -LiteralPath $log -Value ((Get-Date -Format o)+' '+$m) -Encoding UTF8}",
+    "try{",
+    "L 'start';",
+    "Start-Sleep -Seconds 3;",
+    `if(-not(Test-Path -LiteralPath ${psQuote(sourceExe)})){throw 'pending missing'};`,
+    `Copy-Item -LiteralPath ${psQuote(sourceExe)} -Destination ${psQuote(finalExe)} -Force;`,
+    "L 'copied';",
+    removeOld,
+    `Start-Process -FilePath ${psQuote(finalExe)};`,
+    "L 'started'",
+    "}catch{L ('error: '+$_.Exception.Message); exit 1}"
+  ].join(" ");
 
-  // UTF-8 BOM，避免 PowerShell 5.x 把中文路径读成乱码
-  writeFileSync(scriptPath, `\uFEFF${script}`, "utf8");
+  // PowerShell -EncodedCommand 要求 UTF-16LE Base64
+  const encoded = Buffer.from(psScript, "utf16le").toString("base64");
+  const command = `start "" /min powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
 
-  // cmd start 打开新进程树，避免随 Electron 一起被杀
-  spawn(
-    "cmd.exe",
-    [
-      "/c",
-      "start",
-      "",
-      "/min",
-      "powershell.exe",
-      "-NoProfile",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-File",
-      scriptPath
-    ],
-    { detached: true, stdio: "ignore", windowsHide: true }
-  ).unref();
+  spawn(command, {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true,
+    shell: true
+  }).unref();
 
-  // 稍后再退，确保 start 已拉起
   setTimeout(() => {
     app.quit();
-  }, 400);
+  }, 600);
 };
 
 export const quitAndInstallUpdate = (): void => {
