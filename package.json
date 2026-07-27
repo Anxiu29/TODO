@@ -63,9 +63,10 @@
       "!node_modules/react-dom/**",
       "!node_modules/**/*.{map,ts,tsx,d.ts,d.mts,md}",
       "!node_modules/koffi/doc/**",
-      "!node_modules/koffi/src/**",
       "!node_modules/koffi/vendor/**",
-      "!node_modules/koffi/examples/**"
+      "!node_modules/koffi/examples/**",
+      "!node_modules/koffi/src/**/*.{cc,hh,S,asm,inc,def}",
+      "!node_modules/koffi/src/**/CMakeLists.txt"
     ],
     "win": {
       "target": [
