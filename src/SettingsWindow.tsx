@@ -382,7 +382,9 @@ export default function SettingsWindow(): React.ReactElement {
             <section className="settings-option vertical">
               <div>
                 <strong>手动下载</strong>
-                <span>应用内更新较慢时，可打开发行页自行下载最新版（推荐国内用 Gitee）</span>
+                <span>
+                  主推便携版：下载 <code>Desktop-Todo-Widget-x.y.z.exe</code> 覆盖即可（国内优先 Gitee）
+                </span>
               </div>
               <div className="settings-release-links">
                 <button
@@ -390,7 +392,7 @@ export default function SettingsWindow(): React.ReactElement {
                   className="settings-release-link"
                   onClick={() => handleOpenReleasePage(PROJECT_RELEASE_URLS.gitee)}
                 >
-                  <span className="settings-release-link-label">Gitee</span>
+                  <span className="settings-release-link-label">Gitee（推荐）</span>
                   <span className="settings-release-link-url">{PROJECT_RELEASE_URLS.gitee}</span>
                 </button>
                 <button

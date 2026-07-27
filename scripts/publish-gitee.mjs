@@ -25,10 +25,11 @@ const tag = `v${version}`;
 const releaseDir = join(root, "release", version);
 const token = process.env.GITEE_TOKEN;
 
+/** 便携版优先上传（项目主推）；安装版与 blockmap 随后 */
 const binaryFiles = [
-  `Desktop-Todo-Widget-Setup-${version}.exe.blockmap`,
+  `Desktop-Todo-Widget-${version}.exe`,
   `Desktop-Todo-Widget-Setup-${version}.exe`,
-  `Desktop-Todo-Widget-${version}.exe`
+  `Desktop-Todo-Widget-Setup-${version}.exe.blockmap`
 ];
 const manifestFiles = ["latest.yml", "portable.yml"];
 const files = [...binaryFiles, ...manifestFiles];

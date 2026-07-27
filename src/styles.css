@@ -1148,6 +1148,12 @@ h2 {
   line-height: 1.5;
 }
 
+.settings-option code {
+  font-family: ui-monospace, Consolas, "Courier New", monospace;
+  font-size: 11px;
+  color: var(--accent);
+}
+
 .settings-option input[type="checkbox"] {
   width: 18px;
   height: 18px;

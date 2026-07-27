@@ -2,7 +2,9 @@
 
 一个轻量的 **Windows 桌面待办挂件**：贴在桌面上、全局快捷键快速添加、跨日自动滚动进行中任务，并支持应用内更新。
 
-当前版本：`0.2.7`
+**主推便携版**（单文件、数据跟 exe 走）；安装版仅作备选。
+
+当前版本：`0.2.8`
 
 ## 功能
 
@@ -27,12 +29,12 @@
 
 ## 安装与使用
 
-提供两种分发形态（见 [Releases](https://github.com/Anxiu29/TODO/releases)）：
+提供两种分发形态（见 [Releases](https://github.com/Anxiu29/TODO/releases) / [Gitee](https://gitee.com/anxiu29/TODO/releases)）：
 
 | 类型 | 文件名示例 | 说明 |
 |------|------------|------|
-| 安装版 | `Desktop-Todo-Widget-Setup-x.y.z.exe` | NSIS 安装包，可改安装目录 |
-| 便携版 | `Desktop-Todo-Widget-x.y.z.exe` | 单文件，数据写在 exe 旁 `data/` |
+| **便携版（推荐）** | `Desktop-Todo-Widget-x.y.z.exe` | 主推：单文件绿色运行，数据在 exe 旁 `data/`，更新也走便携 channel |
+| 安装版 | `Desktop-Todo-Widget-Setup-x.y.z.exe` | 备选：NSIS 安装包，可改安装目录，数据在 AppData |
 
 ### 默认快捷键
 
@@ -47,10 +49,10 @@
 
 | 环境 | 路径 |
 |------|------|
+| **便携版（主推）** | `{exe 同目录}\data\todos.json` |
 | 开发 / 安装版 | `%APPDATA%\Desktop Todo Widget\todos.json` |
-| 便携版 | `{exe 同目录}\data\todos.json` |
 
-安装版数据放在 AppData，避免升级安装目录时丢失待办。
+便携版数据与 exe 同目录，拷贝整个文件夹即可搬家；安装版数据在 AppData，避免覆盖安装时丢待办。
 
 ## 开发
 
@@ -66,12 +68,12 @@ npm install
 npm run dev          # 开发模式
 npm test             # 单元测试
 npm run build        # 类型检查 + 构建到 out/
-npm run dist         # 打包安装版 + 便携版到 release/<version>/
+npm run dist         # 打包便携版 + 安装版到 release/<version>/（便携优先）
 ```
 
 ### 发布到 GitHub + Gitee Release
 
-发版会同时上传：
+发版会同时上传（**以便携版为主**，安装版一并附上）：
 
 | 平台 | 仓库 | 用途 |
 |------|------|------|
@@ -88,13 +90,13 @@ npm run dist:publish
 ```
 
 Gitee 会额外维护一个 `latest` 浮动发行版，供应用内更新拉取；应用会**优先检查 Gitee**，失败再回退 GitHub。  
-注意：安装包约 100MB，若 Gitee 附件大小受限导致上传失败，需在 Gitee 侧提升限额或改用其他国内对象存储。
+瘦身后安装包约 91MB，可上传 Gitee（社区版附件上限 100MB）。
 
 ## 技术栈
 
-- **Electron** + **electron-vite** + **TypeScript**
+- **Electron 43.0.0**（已锁定版本）+ **electron-vite** + **TypeScript**
 - **React** 渲染四类窗口（`?view=widget|add|calendar|settings`）
-- **electron-updater**：优先 Gitee、回退 GitHub（安装版 / 便携版分 channel）
+- **electron-updater**：优先 Gitee、回退 GitHub（便携版走 `portable` channel）
 - **koffi**：调用 Win32 API，实现桌面层附着
 - **Vitest**：纯业务逻辑测试（排序、日切、日历聚合等）
 

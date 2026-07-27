@@ -28,10 +28,11 @@ const token = process.env.GH_TOKEN;
  * 先传二进制，最后强制覆盖 yml。
  * yml 体积几乎固定，若只按 size 判断会误跳过，导致校验和与 exe 错配。
  */
+/** 便携版优先上传（项目主推）；安装版与 blockmap 随后 */
 const binaryFiles = [
-  `Desktop-Todo-Widget-Setup-${version}.exe.blockmap`,
+  `Desktop-Todo-Widget-${version}.exe`,
   `Desktop-Todo-Widget-Setup-${version}.exe`,
-  `Desktop-Todo-Widget-${version}.exe`
+  `Desktop-Todo-Widget-Setup-${version}.exe.blockmap`
 ];
 const manifestFiles = ["latest.yml", "portable.yml"];
 const files = [...binaryFiles, ...manifestFiles];

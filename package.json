@@ -1,7 +1,7 @@
 {
   "name": "desktop-todo-widget",
-  "version": "0.2.7",
-  "description": "A Windows desktop todo widget with global quick add and daily rollover.",
+  "version": "0.2.8",
+  "description": "A Windows portable desktop todo widget with global quick add and daily rollover.",
   "private": true,
   "type": "module",
   "main": "./out/main/main.js",
@@ -9,7 +9,7 @@
     "dev": "electron-vite dev",
     "build": "tsc --noEmit && electron-vite build",
     "preview": "electron-vite preview",
-    "dist": "npm run build && electron-builder --win nsis portable",
+    "dist": "npm run build && electron-builder --win portable nsis",
     "dist:publish": "npm run dist && node scripts/generate-update-yml.mjs && node scripts/publish-github.mjs && node scripts/publish-gitee.mjs",
     "test": "vitest run",
     "diagnose:desktop": "node scripts/diagnose-desktop-attach.cjs"
@@ -26,7 +26,7 @@
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "@vitejs/plugin-react": "5.1.4",
-    "electron": "latest",
+    "electron": "43.0.0",
     "electron-builder": "latest",
     "electron-vite": "5.0.0",
     "typescript": "latest",
@@ -51,13 +51,26 @@
       "node_modules/koffi/**/*",
       "node_modules/@koromix/**/*"
     ],
+    "electronLanguages": [
+      "zh-CN",
+      "en-US"
+    ],
+    "afterPack": "./scripts/after-pack.mjs",
     "files": [
-      "out/**/*"
+      "out/**/*",
+      "!node_modules/lucide-react/**",
+      "!node_modules/react/**",
+      "!node_modules/react-dom/**",
+      "!node_modules/**/*.{map,ts,tsx,d.ts,d.mts,md}",
+      "!node_modules/koffi/doc/**",
+      "!node_modules/koffi/src/**",
+      "!node_modules/koffi/vendor/**",
+      "!node_modules/koffi/examples/**"
     ],
     "win": {
       "target": [
-        "nsis",
-        "portable"
+        "portable",
+        "nsis"
       ]
     },
     "nsis": {
