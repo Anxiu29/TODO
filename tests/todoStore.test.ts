@@ -1,9 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { buildTodoSnapshot, getCalendarForMonth, refreshDatabaseForDate, updateTodoTitle } from "../src/data/todoStore";
+import {
+  buildTodoSnapshot,
+  daysBetweenDateKeys,
+  getCalendarForMonth,
+  refreshDatabaseForDate,
+  updateTodoTitle
+} from "../src/data/todoStore";
 import {
   normalizeDueDays,
   normalizeTodoSubtasks,
   normalizeTodoTags,
+  normalizeTodoWaitingFields,
   normalizeWidgetOpacity,
   normalizeWidgetTheme,
   type TodoDatabase
@@ -148,5 +155,75 @@ describe("todo tags and appearance normalize", () => {
     expect(normalizeDueDays(0)).toBeUndefined();
     expect(normalizeDueDays("")).toBeUndefined();
     expect(normalizeDueDays(999)).toBe(365);
+  });
+
+  it("normalizes waiting fields and clears them for non-waiting status", () => {
+    expect(normalizeTodoWaitingFields("waiting", "2026-07-01", " 等设计 ", "2026-08-01")).toEqual({
+      status: "waiting",
+      waitingSince: "2026-07-01",
+      waitingReason: "等设计"
+    });
+    expect(normalizeTodoWaitingFields("waiting", "bad", "", "2026-08-01")).toEqual({
+      status: "waiting",
+      waitingSince: "2026-08-01"
+    });
+    expect(normalizeTodoWaitingFields("active", "2026-07-01", "残留", "2026-08-01")).toEqual({
+      status: "active"
+    });
+    expect(normalizeTodoWaitingFields("bogus", "2026-07-01", "x", "2026-08-01")).toEqual({
+      status: "active"
+    });
+  });
+});
+
+describe("todo waiting status", () => {
+  const waitingDatabase: TodoDatabase = {
+    ...database,
+    todos: [
+      {
+        id: "waiting-1",
+        title: "等待中的事项",
+        createdAt: "2026-07-01T08:00:00.000Z",
+        scheduledDate: "2026-07-01",
+        status: "waiting",
+        waitingSince: "2026-06-28",
+        waitingReason: "等接口",
+        rating: 3,
+        tags: [],
+        subtasks: []
+      },
+      {
+        id: "active-2",
+        title: "进行中的事项",
+        createdAt: "2026-07-01T09:00:00.000Z",
+        scheduledDate: "2026-07-01",
+        status: "active",
+        rating: 2,
+        tags: [],
+        subtasks: []
+      }
+    ]
+  };
+
+  it("rolls waiting todos to the new day without resetting waitingSince", () => {
+    const refreshed = refreshDatabaseForDate(waitingDatabase, "2026-07-03");
+    const waiting = refreshed.todos.find((todo) => todo.id === "waiting-1");
+
+    expect(waiting?.scheduledDate).toBe("2026-07-03");
+    expect(waiting?.waitingSince).toBe("2026-06-28");
+    expect(waiting?.status).toBe("waiting");
+  });
+
+  it("includes waiting todos in today's activeTodos after active items", () => {
+    const snapshot = buildTodoSnapshot(waitingDatabase, "2026-07-01");
+
+    expect(snapshot.activeTodos.map((todo) => todo.id)).toEqual(["active-2", "waiting-1"]);
+  });
+
+  it("computes waiting days between date keys", () => {
+    expect(daysBetweenDateKeys("2026-07-01", "2026-07-01")).toBe(0);
+    expect(daysBetweenDateKeys("2026-07-01", "2026-07-02")).toBe(1);
+    expect(daysBetweenDateKeys("2026-06-28", "2026-07-01")).toBe(3);
+    expect(daysBetweenDateKeys("bad", "2026-07-01")).toBe(0);
   });
 });

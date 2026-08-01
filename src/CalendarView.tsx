@@ -1,7 +1,7 @@
 /**
  * 完成日历窗口（?view=calendar）。
  *
- * 左侧月历格显示每日完成数量，右侧展示选中日期的完成列表。
+ * 左侧月历格显示每日完成数量，右侧展示选中日期的完成列表（含父任务下的子任务明细）。
  * 支持编辑标题、恢复为进行中；待办变更时通过 onTodosChanged 自动刷新。
  */
 import { X } from "lucide-react";
@@ -314,34 +314,54 @@ export default function CalendarView(): React.ReactElement {
             ) : (
               selected.completedTodos.map((todo) => (
                 <article className="detail-item" key={todo.id}>
-                  {editingId === todo.id ? (
-                    <input
-                      className="todo-title-input"
-                      value={editingTitle}
-                      onChange={(event) => setEditingTitle(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          void saveEdit();
-                        }
-                        if (event.key === "Escape") {
-                          skipBlurSaveRef.current = true;
-                          cancelEdit();
-                        }
-                      }}
-                      onBlur={handleEditBlur}
-                      aria-label="编辑待办标题"
-                      autoFocus
-                    />
-                  ) : (
-                    <button type="button" className="todo-title-button" onClick={() => startEdit(todo)}>
-                      {todo.title}
-                    </button>
-                  )}
-                  {editingId !== todo.id ? (
-                    <button type="button" onClick={() => window.todoApi.reopenTodo(todo.id)}>
-                      恢复
-                    </button>
+                  <div className="detail-item-row">
+                    {editingId === todo.id ? (
+                      <input
+                        className="todo-title-input"
+                        value={editingTitle}
+                        onChange={(event) => setEditingTitle(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            void saveEdit();
+                          }
+                          if (event.key === "Escape") {
+                            skipBlurSaveRef.current = true;
+                            cancelEdit();
+                          }
+                        }}
+                        onBlur={handleEditBlur}
+                        aria-label="编辑待办标题"
+                        autoFocus
+                      />
+                    ) : (
+                      <button type="button" className="todo-title-button" onClick={() => startEdit(todo)}>
+                        {todo.title}
+                      </button>
+                    )}
+                    {editingId !== todo.id ? (
+                      <button
+                        type="button"
+                        className="detail-reopen-button"
+                        onClick={() => window.todoApi.reopenTodo(todo.id)}
+                      >
+                        恢复
+                      </button>
+                    ) : null}
+                  </div>
+                  {/* 完成记录附带子任务明细，只读展示勾选状态 */}
+                  {todo.subtasks.length > 0 ? (
+                    <ul className="detail-subtasks" aria-label={`${todo.title} 的子任务`}>
+                      {todo.subtasks.map((subtask) => (
+                        <li
+                          key={subtask.id}
+                          className={`detail-subtask${subtask.done ? " done" : ""}`}
+                        >
+                          <span className="detail-subtask-mark" aria-hidden />
+                          <span className="detail-subtask-title">{subtask.title}</span>
+                        </li>
+                      ))}
+                    </ul>
                   ) : null}
                 </article>
               ))

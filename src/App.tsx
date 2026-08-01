@@ -2,21 +2,22 @@
  * 桌面挂件主界面（?view=widget）。
  *
  * 功能：今日待办列表、内联/弹窗编辑、完成/删除（确认 + 撤回）、紧急评分、
- * 标签与子任务、右键查看添加时间与已过天数、置顶切换、完成区预览、
+ * 标签与子任务、等待中（含等待天数）、右键查看添加时间与已过天数、置顶切换、完成区预览、
  * 打开日历/设置/添加窗口（全局快捷键仍可唤起同一添加窗）。
  * 数据通过 window.todoApi 与主进程同步，并订阅 IPC 推送保持多窗口一致。
  */
-import { Calendar, CalendarClock, ListTodo, Minus, Pin, Settings, Tag, Trash2, X } from "lucide-react";
+import { Calendar, CalendarClock, Hourglass, ListTodo, Minus, Pin, Settings, Tag, Trash2, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
+import { daysBetweenDateKeys } from "./data/todoStore";
 import TodoRating from "./TodoRating";
 import TodoSubtasks from "./TodoSubtasks";
 import { TodoTagChips, TodoTagEditor } from "./TodoTags";
 import type { AppSettings, Todo, TodoSnapshot } from "./types/todo";
-import { DUE_DAYS_MAX, DUE_DAYS_MIN } from "./types/todo";
+import { DUE_DAYS_MAX, DUE_DAYS_MIN, WAITING_REASON_MAX_LEN } from "./types/todo";
 
 /** 右键菜单当前展开的面板；同时只开一个，保持菜单紧凑 */
-type ContextPanel = "due" | "tags" | "subtasks" | null;
+type ContextPanel = "due" | "tags" | "subtasks" | "waiting" | null;
 
 /** IPC 加载前的占位快照，避免首屏 undefined */
 const emptySnapshot: TodoSnapshot = {
@@ -59,6 +60,14 @@ const formatDaysAgo = (iso: string): string => {
   const days = daysSinceCreated(iso);
   if (days === 0) return "今天添加";
   return `已过去 ${days} 天`;
+};
+
+/** 根据 waitingSince 与今日日期键格式化等待文案 */
+const formatWaitingDays = (waitingSince: string | undefined, today: string): string => {
+  if (!waitingSince) return "等待中";
+  const days = daysBetweenDateKeys(waitingSince, today);
+  if (days === 0) return "今天开始等待";
+  return `已等待 ${days} 天`;
 };
 
 /** 右键菜单定位信息；标签内容从 snapshot 按 id 实时取，避免编辑后菜单不同步 */
@@ -120,13 +129,17 @@ export default function App(): React.ReactElement {
   const [tagFilter, setTagFilter] = useState<string | null>(null);
   /** 右键菜单内「添加子任务」输入草稿 */
   const [subtaskDraft, setSubtaskDraft] = useState("");
-  /** 右键菜单展开面板：预计天数 / 标签 / 子任务 */
+  /** 右键菜单展开面板：预计天数 / 标签 / 子任务 / 等待中 */
   const [contextPanel, setContextPanel] = useState<ContextPanel>(null);
   /** 预计完成天数输入草稿；点「确定」才落盘 */
   const [dueDaysDraft, setDueDaysDraft] = useState("");
   /** 与草稿同步，供提交时读取最新值 */
   const dueDaysDraftRef = useRef("");
   dueDaysDraftRef.current = dueDaysDraft;
+  /** 等待原因输入草稿 */
+  const [waitingReasonDraft, setWaitingReasonDraft] = useState("");
+  const waitingReasonDraftRef = useRef("");
+  waitingReasonDraftRef.current = waitingReasonDraft;
 
   /** 挂载时拉取初始数据，并订阅主进程推送；unmount 时取消全部监听 */
   useEffect(() => {
@@ -192,6 +205,7 @@ export default function App(): React.ReactElement {
     setSubtaskDraft("");
     setContextPanel(null);
     setDueDaysDraft("");
+    setWaitingReasonDraft("");
   }, [contextMenu?.id]);
 
   /** 切换右键面板；再次点击同一图标则收起 */
@@ -263,6 +277,25 @@ export default function App(): React.ReactElement {
       return;
     }
     const next = await window.todoApi.setTodoDueDays(todoId, days);
+    setSnapshot(next);
+    setContextMenu(null);
+  };
+
+  /** 进入等待或更新等待原因后关闭菜单 */
+  const commitWaiting = async (): Promise<void> => {
+    if (!contextMenuTodo) return;
+    const reason = waitingReasonDraftRef.current.trim();
+    const next = await window.todoApi.setTodoWaiting(contextMenuTodo.id, {
+      reason: reason || null
+    });
+    setSnapshot(next);
+    setContextMenu(null);
+  };
+
+  /** 等待中恢复为进行中 */
+  const commitResume = async (): Promise<void> => {
+    if (!contextMenuTodo) return;
+    const next = await window.todoApi.resumeTodo(contextMenuTodo.id);
     setSnapshot(next);
     setContextMenu(null);
   };
@@ -539,7 +572,7 @@ export default function App(): React.ReactElement {
           ) : (
             visibleTodos.map((todo) => (
               <article
-                className="todo-item"
+                className={`todo-item${todo.status === "waiting" ? " waiting" : ""}`}
                 key={todo.id}
                 onContextMenu={(event) => {
                   // 阻止系统菜单；标签编辑与添加时间都放在自定义右键菜单里
@@ -594,6 +627,19 @@ export default function App(): React.ReactElement {
                         {todo.title}
                       </button>
                     )}
+                    {/* 等待中：展示已等待天数与可选原因 */}
+                    {todo.status === "waiting" ? (
+                      <div className="todo-waiting-meta">
+                        <span className="todo-waiting-badge">
+                          {formatWaitingDays(todo.waitingSince, snapshot.today)}
+                        </span>
+                        {todo.waitingReason ? (
+                          <span className="todo-waiting-reason" title={todo.waitingReason}>
+                            {todo.waitingReason}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
                     {/* 已按标签筛选时不再重复展示标签 chips，避免拥挤 */}
                     {tagFilter ? null : <TodoTagChips tags={todo.tags} />}
                   </div>
@@ -837,6 +883,19 @@ export default function App(): React.ReactElement {
               >
                 <ListTodo aria-hidden strokeWidth={2} />
               </button>
+              <button
+                type="button"
+                className={`todo-context-icon-button${contextMenuTodo.status === "waiting" ? " has-value" : ""}${contextPanel === "waiting" ? " open" : ""}`}
+                title="等待中"
+                aria-label="等待中"
+                aria-expanded={contextPanel === "waiting"}
+                onClick={() => {
+                  setWaitingReasonDraft(contextMenuTodo.waitingReason ?? "");
+                  toggleContextPanel("waiting");
+                }}
+              >
+                <Hourglass aria-hidden strokeWidth={2} />
+              </button>
             </div>
 
             {contextPanel === "due" ? (
@@ -925,6 +984,49 @@ export default function App(): React.ReactElement {
                     autoFocus
                   />
                   <button type="submit">添加</button>
+                </div>
+              </form>
+            ) : null}
+
+            {contextPanel === "waiting" ? (
+              <form
+                className="todo-waiting-editor"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void commitWaiting();
+                }}
+              >
+                {contextMenuTodo.status === "waiting" ? (
+                  <span className="todo-waiting-editor-days">
+                    {formatWaitingDays(contextMenuTodo.waitingSince, snapshot.today)}
+                  </span>
+                ) : (
+                  <span className="todo-waiting-editor-hint">标记为等待中（可选填原因）</span>
+                )}
+                <input
+                  className="todo-waiting-reason-input"
+                  value={waitingReasonDraft}
+                  onChange={(event) => setWaitingReasonDraft(event.target.value)}
+                  placeholder="等待原因…"
+                  aria-label="等待原因"
+                  maxLength={WAITING_REASON_MAX_LEN}
+                  autoFocus
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      setContextPanel(null);
+                    }
+                  }}
+                />
+                <div className="todo-waiting-editor-actions">
+                  <button type="submit" className="todo-due-confirm">
+                    {contextMenuTodo.status === "waiting" ? "更新" : "开始等待"}
+                  </button>
+                  {contextMenuTodo.status === "waiting" ? (
+                    <button type="button" className="todo-due-clear" onClick={() => void commitResume()}>
+                      继续进行
+                    </button>
+                  ) : null}
                 </div>
               </form>
             ) : null}

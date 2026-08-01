@@ -21,7 +21,10 @@ export const CUSTOM_TAG_MAX_LEN = 12;
 /** 单条待办最多标签数（含分类、紧急、自定义） */
 export const TODO_TAGS_MAX = 6;
 
-export type TodoStatus = "active" | "completed";
+export type TodoStatus = "active" | "waiting" | "completed";
+
+/** 等待原因最大字符数（trim 后截断） */
+export const WAITING_REASON_MAX_LEN = 40;
 
 /** 待办下的子任务勾选项 */
 export type TodoSubtask = {
@@ -134,25 +137,66 @@ export const normalizeDueDays = (dueDays?: unknown): number | undefined => {
   return Math.min(DUE_DAYS_MAX, days);
 };
 
+/** 是否为合法 YYYY-MM-DD 日期键 */
+export const isDateKey = (value: unknown): value is string =>
+  typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+/** 规范化等待原因；空串视为未设置 */
+export const normalizeWaitingReason = (reason?: unknown): string | undefined => {
+  if (typeof reason !== "string") return undefined;
+  const trimmed = reason.trim().slice(0, WAITING_REASON_MAX_LEN);
+  return trimmed || undefined;
+};
+
 /** 单条待办记录，持久化在 todos.json 的 todos 数组中 */
 export type Todo = {
   id: string;
   title: string;
   /** ISO 8601 创建时间 */
   createdAt: string;
-  /** 归属日期 YYYY-MM-DD，日切时进行中待办会更新此字段 */
+  /** 归属日期 YYYY-MM-DD，日切时进行中/等待中待办会更新此字段 */
   scheduledDate: string;
   /** 完成时刻，仅 status=completed 时有值 */
   completedAt?: string;
   /** 预计几天完成（正整数天数），可选 */
   dueDays?: number;
   status: TodoStatus;
+  /** 开始等待的日期 YYYY-MM-DD，仅 status=waiting 时有值 */
+  waitingSince?: string;
+  /** 等待原因（可选短文本） */
+  waitingReason?: string;
   /** 紧急程度 1–5，影响列表排序 */
   rating: number;
   /** 标签：至多一个分类（工作/生活/学习），可另加「紧急」与自定义标签 */
   tags: string[];
   /** 子任务列表 */
   subtasks: TodoSubtask[];
+};
+
+/**
+ * 规范化状态与等待字段。
+ * - 非法 status 回退 active
+ * - waiting 缺 waitingSince 时用 fallbackDate（通常为今天）
+ * - 非 waiting 时清除等待字段
+ */
+export const normalizeTodoWaitingFields = (
+  status: unknown,
+  waitingSince: unknown,
+  waitingReason: unknown,
+  fallbackDate: string
+): Pick<Todo, "status" | "waitingSince" | "waitingReason"> => {
+  if (status === "completed") {
+    return { status: "completed" };
+  }
+  if (status === "waiting") {
+    const reason = normalizeWaitingReason(waitingReason);
+    return {
+      status: "waiting",
+      waitingSince: isDateKey(waitingSince) ? waitingSince : fallbackDate,
+      ...(reason ? { waitingReason: reason } : {})
+    };
+  }
+  return { status: "active" };
 };
 
 /** 挂件窗口的位置与尺寸，持久化在 settings.widgetBounds */
@@ -173,6 +217,7 @@ export type TodoCalendarDay = {
 /** 渲染进程 UI 使用的当日数据视图（由 buildTodoSnapshot 生成） */
 export type TodoSnapshot = {
   today: string;
+  /** 今日未完成：含 active 与 waiting */
   activeTodos: Todo[];
   completedToday: Todo[];
 };

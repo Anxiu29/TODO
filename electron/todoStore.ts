@@ -17,6 +17,8 @@ import {
   normalizeTodoRating,
   normalizeTodoSubtasks,
   normalizeTodoTags,
+  normalizeTodoWaitingFields,
+  normalizeWaitingReason,
   normalizeWidgetOpacity,
   normalizeWidgetTheme,
   WIDGET_OPACITY_DEFAULT,
@@ -56,16 +58,32 @@ const normalizeDisplayMode = (displayMode: unknown): WidgetDisplayMode =>
   displayMode === "desktop" ? "desktop" : "normal";
 
 const normalizeTodoRecord = (todo: TodoDatabase["todos"][number]): TodoDatabase["todos"][number] => {
-  // 丢弃旧版 dueAt（具体时刻），只保留/规范化 dueDays
+  // 丢弃旧版 dueAt（具体时刻），只保留/规范化 dueDays；等待字段与 status 一并规范化
   const rest = { ...todo } as TodoDatabase["todos"][number] & { dueAt?: unknown };
   delete rest.dueAt;
+  const waiting = normalizeTodoWaitingFields(
+    rest.status,
+    rest.waitingSince,
+    rest.waitingReason,
+    todayKey()
+  );
+  const dueDays = normalizeDueDays(rest.dueDays);
+  // 非 waiting 时显式去掉字段，避免脏数据残留
+  const { waitingSince: _ws, waitingReason: _wr, ...base } = rest;
   return {
-    ...rest,
+    ...base,
+    ...waiting,
     rating: normalizeTodoRating(rest.rating),
     tags: normalizeTodoTags(rest.tags),
     subtasks: normalizeTodoSubtasks(rest.subtasks),
-    dueDays: normalizeDueDays(rest.dueDays)
+    ...(dueDays !== undefined ? { dueDays } : {})
   };
+};
+
+/** 清除等待相关字段（恢复进行中或完成时调用） */
+const clearWaitingFields = (todo: Todo): void => {
+  delete todo.waitingSince;
+  delete todo.waitingReason;
 };
 
 /**
@@ -116,12 +134,13 @@ export class TodoStore {
     return this.getSnapshot();
   }
 
-  /** 标记完成，写入 completedAt 时间戳 */
+  /** 标记完成，写入 completedAt；进行中或等待中均可完成，并清除等待字段 */
   completeTodo(id: string): TodoSnapshot {
     const todo = this.database.todos.find((item) => item.id === id);
-    if (todo && todo.status === "active") {
+    if (todo && (todo.status === "active" || todo.status === "waiting")) {
       todo.status = "completed";
       todo.completedAt = nowIso();
+      clearWaitingFields(todo);
       this.save();
     }
 
@@ -135,9 +154,51 @@ export class TodoStore {
       todo.status = "active";
       todo.completedAt = undefined;
       todo.scheduledDate = todayKey();
+      clearWaitingFields(todo);
       this.save();
     }
 
+    return this.getSnapshot();
+  }
+
+  /**
+   * 标记为等待中；可选原因。
+   * 首次进入写入 waitingSince=今天；已在等待则只更新原因，不重置天数。
+   */
+  setTodoWaiting(id: string, options?: { reason?: string | null }): TodoSnapshot {
+    const todo = this.database.todos.find((item) => item.id === id);
+    if (!todo || (todo.status !== "active" && todo.status !== "waiting")) {
+      return this.getSnapshot();
+    }
+
+    const reason =
+      options && "reason" in options
+        ? normalizeWaitingReason(options.reason)
+        : todo.waitingReason;
+
+    if (todo.status !== "waiting") {
+      todo.status = "waiting";
+      todo.waitingSince = todayKey();
+    }
+
+    if (reason) {
+      todo.waitingReason = reason;
+    } else {
+      delete todo.waitingReason;
+    }
+
+    this.save();
+    return this.getSnapshot();
+  }
+
+  /** 等待中恢复为进行中，清除等待字段 */
+  resumeTodo(id: string): TodoSnapshot {
+    const todo = this.database.todos.find((item) => item.id === id);
+    if (todo && todo.status === "waiting") {
+      todo.status = "active";
+      clearWaitingFields(todo);
+      this.save();
+    }
     return this.getSnapshot();
   }
 
@@ -267,7 +328,7 @@ export class TodoStore {
   }
 
   /**
-   * 日切：跨天时把所有进行中待办的 scheduledDate 滚到今天。
+   * 日切：跨天时把所有进行中/等待中待办的 scheduledDate 滚到今天。
    * 若日期未变则 no-op；有变更则写盘。
    */
   refreshDaily(date = todayKey()): TodoSnapshot {

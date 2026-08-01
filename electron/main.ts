@@ -813,6 +813,16 @@ const registerIpc = (): void => {
     broadcastSnapshot();
     return snapshot;
   });
+  ipcMain.handle("todos:setWaiting", (_event, id: string, options?: { reason?: string | null }) => {
+    const snapshot = store.setTodoWaiting(id, options);
+    broadcastSnapshot();
+    return snapshot;
+  });
+  ipcMain.handle("todos:resume", (_event, id: string) => {
+    const snapshot = store.resumeTodo(id);
+    broadcastSnapshot();
+    return snapshot;
+  });
   ipcMain.handle("todos:addSubtask", (_event, id: string, title: string) => {
     const snapshot = store.addTodoSubtask(id, title);
     broadcastSnapshot();

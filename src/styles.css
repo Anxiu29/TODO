@@ -359,6 +359,41 @@ h2 {
   gap: 4px;
 }
 
+/* 等待中：弱化卡片，突出「暂停」语义 */
+.todo-item.waiting {
+  opacity: 0.82;
+  background: color-mix(in srgb, var(--surface-muted) 88%, var(--accent-soft));
+}
+
+.todo-waiting-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.todo-waiting-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 650;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.todo-waiting-reason {
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .detail-item {
   grid-template-columns: 1fr auto;
 }
@@ -600,6 +635,45 @@ h2 {
   gap: 6px;
   padding-top: 6px;
   border-top: 1px solid var(--border-strong);
+}
+
+.todo-waiting-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-strong);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.todo-waiting-editor-days,
+.todo-waiting-editor-hint {
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.todo-waiting-reason-input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--accent-border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 11px;
+  padding: 4px 8px;
+  outline: none;
+}
+
+.todo-waiting-reason-input:focus {
+  border-color: var(--accent);
+}
+
+.todo-waiting-editor-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .todo-subtasks {
@@ -1752,15 +1826,21 @@ h2 {
 }
 
 .day-detail .detail-item {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: start;
-  gap: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   border-radius: 12px;
   background: #ffffff;
   border: 1px solid #e2e8f0;
   box-shadow: none;
   padding: 10px;
+}
+
+.day-detail .detail-item-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  gap: 10px;
 }
 
 .day-detail .detail-item .todo-title-button {
@@ -1780,11 +1860,56 @@ h2 {
   color: #0369a1;
 }
 
-.day-detail .detail-item button:last-child {
+.day-detail .detail-reopen-button {
   font-size: 12px;
   padding: 6px 10px;
   background: #e0f2fe;
   color: #0369a1;
+}
+
+/* 日历详情里的子任务：只读勾选态，不提供编辑入口 */
+.day-detail .detail-subtasks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.day-detail .detail-subtask {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #334155;
+}
+
+.day-detail .detail-subtask-mark {
+  width: 12px;
+  height: 12px;
+  margin-top: 2px;
+  border: 2px solid #94a3b8;
+  border-radius: 3px;
+  box-sizing: border-box;
+}
+
+.day-detail .detail-subtask.done .detail-subtask-mark {
+  border-color: #0369a1;
+  background: #0369a1;
+}
+
+.day-detail .detail-subtask.done .detail-subtask-title {
+  color: #94a3b8;
+  text-decoration: line-through;
+}
+
+.day-detail .detail-subtask-title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* 日历暗色：降低刺眼亮底，改用深色表面 + 柔和强调色 */
@@ -1888,7 +2013,24 @@ h2 {
   color: #7dd3fc;
 }
 
-:root[data-theme="dark"] .day-detail .detail-item button:last-child {
+:root[data-theme="dark"] .day-detail .detail-reopen-button {
   background: #0c4a6e;
   color: #7dd3fc;
+}
+
+:root[data-theme="dark"] .day-detail .detail-subtask {
+  color: #cbd5e1;
+}
+
+:root[data-theme="dark"] .day-detail .detail-subtask-mark {
+  border-color: #64748b;
+}
+
+:root[data-theme="dark"] .day-detail .detail-subtask.done .detail-subtask-mark {
+  border-color: #38bdf8;
+  background: #38bdf8;
+}
+
+:root[data-theme="dark"] .day-detail .detail-subtask.done .detail-subtask-title {
+  color: #64748b;
 }

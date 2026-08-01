@@ -36,6 +36,11 @@ const api = {
   /** 设置预计完成天数；传 null 清除 */
   setTodoDueDays: (id: string, dueDays: number | null): Promise<TodoSnapshot> =>
     ipcRenderer.invoke("todos:setDueDays", id, dueDays),
+  /** 标记等待中；首次写入 waitingSince，已等待则只更新原因 */
+  setTodoWaiting: (id: string, options?: { reason?: string | null }): Promise<TodoSnapshot> =>
+    ipcRenderer.invoke("todos:setWaiting", id, options),
+  /** 等待中恢复为进行中 */
+  resumeTodo: (id: string): Promise<TodoSnapshot> => ipcRenderer.invoke("todos:resume", id),
   addTodoSubtask: (id: string, title: string): Promise<TodoSnapshot> =>
     ipcRenderer.invoke("todos:addSubtask", id, title),
   toggleTodoSubtask: (id: string, subtaskId: string): Promise<TodoSnapshot> =>
