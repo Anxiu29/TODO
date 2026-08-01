@@ -9,6 +9,7 @@ import {
 } from "../src/data/todoStore";
 import {
   normalizeDueDays,
+  normalizeTagFilter,
   normalizeTodoSubtasks,
   normalizeTodoTags,
   normalizeTodoWaitingFields,
@@ -26,7 +27,8 @@ const database: TodoDatabase = {
     shortcut: "CommandOrControl+2",
     showWidgetShortcut: "CommandOrControl+1",
     theme: "light",
-    widgetOpacity: 0.92
+    widgetOpacity: 0.92,
+    tagFilter: null
   },
   todos: [
     {
@@ -182,6 +184,13 @@ describe("todo tags and appearance normalize", () => {
     expect(normalizeDueDays(0)).toBeUndefined();
     expect(normalizeDueDays("")).toBeUndefined();
     expect(normalizeDueDays(999)).toBe(365);
+  });
+
+  it("normalizes tagFilter: empty/invalid become null", () => {
+    expect(normalizeTagFilter(null)).toBeNull();
+    expect(normalizeTagFilter("")).toBeNull();
+    expect(normalizeTagFilter(" 工作 ")).toBe("工作");
+    expect(normalizeTagFilter(1)).toBeNull();
   });
 
   it("normalizes waiting fields and clears them for non-waiting status", () => {

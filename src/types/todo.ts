@@ -274,6 +274,14 @@ export type TodoUpdate = {
 /** 挂件基础显示模式：normal=普通窗口，desktop=贴到 Windows 桌面层（Win+D 后仍显示） */
 export type WidgetDisplayMode = "normal" | "desktop";
 
+/** 规范化挂件标签筛选；null/空=全部，非法值回退全部 */
+export const normalizeTagFilter = (value?: unknown): string | null => {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value !== "string") return null;
+  const tag = value.trim().slice(0, CUSTOM_TAG_MAX_LEN);
+  return tag || null;
+};
+
 /** 用户偏好设置，持久化在 todos.json 的 settings 对象中 */
 export type AppSettings = {
   widgetBounds?: WindowBounds;
@@ -287,6 +295,8 @@ export type AppSettings = {
   theme: WidgetTheme;
   /** 挂件卡片不透明度 0.5–1 */
   widgetOpacity: number;
+  /** 挂件标签筛选；null=全部，重启/自启后恢复 */
+  tagFilter: string | null;
 };
 
 /** 修改快捷键后 IPC 返回的结果，含是否注册成功及实际生效的组合 */

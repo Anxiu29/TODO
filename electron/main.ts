@@ -855,6 +855,9 @@ const registerIpc = (): void => {
   ipcMain.handle("settings:setDisplayMode", (_event, displayMode: WidgetDisplayMode) => setWidgetDisplayMode(displayMode));
   ipcMain.handle("settings:setTheme", (_event, theme: WidgetTheme) => applySettings(store.setTheme(theme)));
   ipcMain.handle("settings:setWidgetOpacity", (_event, opacity: number) => applySettings(store.setWidgetOpacity(opacity)));
+  ipcMain.handle("settings:setTagFilter", (_event, tagFilter: string | null) =>
+    applySettings(store.setTagFilter(tagFilter))
+  );
   ipcMain.handle("settings:setShortcut", (_event, shortcut: string) => updateShortcut("quickAdd", shortcut));
   ipcMain.handle("settings:setShowWidgetShortcut", (_event, shortcut: string) => updateShortcut("showWidget", shortcut));
   ipcMain.handle("windows:openAddTodo", (_event, options?: { tags?: string[] }) =>

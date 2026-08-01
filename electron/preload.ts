@@ -60,6 +60,9 @@ const api = {
     ipcRenderer.invoke("settings:setDisplayMode", displayMode),
   setTheme: (theme: WidgetTheme): Promise<AppSettings> => ipcRenderer.invoke("settings:setTheme", theme),
   setWidgetOpacity: (opacity: number): Promise<AppSettings> => ipcRenderer.invoke("settings:setWidgetOpacity", opacity),
+  /** 挂件标签筛选；null=全部，持久化以便重启恢复 */
+  setTagFilter: (tagFilter: string | null): Promise<AppSettings> =>
+    ipcRenderer.invoke("settings:setTagFilter", tagFilter),
   setShortcut: (shortcut: string): Promise<ShortcutRegistrationResult> => ipcRenderer.invoke("settings:setShortcut", shortcut),
   setShowWidgetShortcut: (shortcut: string): Promise<ShortcutRegistrationResult> =>
     ipcRenderer.invoke("settings:setShowWidgetShortcut", shortcut),

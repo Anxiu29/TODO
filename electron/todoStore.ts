@@ -14,6 +14,7 @@ import { app } from "electron";
 import { buildTodoSnapshot, getCalendarForMonth, refreshDatabaseForDate, todayKey, updateTodoTitle } from "../src/data/todoStore";
 import {
   normalizeDueDays,
+  normalizeTagFilter,
   normalizeTodoRating,
   normalizeTodoSubtasks,
   normalizeTodoTags,
@@ -50,7 +51,8 @@ export const createEmptyDatabase = (date = todayKey()): TodoDatabase => ({
     shortcut: "CommandOrControl+2",
     showWidgetShortcut: "CommandOrControl+1",
     theme: WIDGET_THEME_DEFAULT,
-    widgetOpacity: WIDGET_OPACITY_DEFAULT
+    widgetOpacity: WIDGET_OPACITY_DEFAULT,
+    tagFilter: null
   }
 });
 
@@ -401,10 +403,17 @@ export class TodoStore {
     return this.database.settings;
   }
 
+  /** 挂件标签筛选；传 null 表示「全部」 */
+  setTagFilter(tagFilter: string | null): AppSettings {
+    this.database.settings.tagFilter = normalizeTagFilter(tagFilter);
+    this.save();
+    return this.database.settings;
+  }
+
   /**
    * 从磁盘加载 JSON。
    * 合并策略：以 createEmptyDatabase 为底，覆盖文件字段，settings/todos 做浅合并；
-   * 缺失的 tags/subtasks/theme/opacity 会补默认值。
+   * 缺失的 tags/subtasks/theme/opacity/tagFilter 会补默认值。
    */
   private load(): TodoDatabase {
     try {
@@ -419,7 +428,8 @@ export class TodoStore {
           ...parsed.settings,
           displayMode: normalizeDisplayMode(parsed.settings?.displayMode),
           theme: normalizeWidgetTheme(parsed.settings?.theme),
-          widgetOpacity: normalizeWidgetOpacity(parsed.settings?.widgetOpacity)
+          widgetOpacity: normalizeWidgetOpacity(parsed.settings?.widgetOpacity),
+          tagFilter: normalizeTagFilter(parsed.settings?.tagFilter)
         },
         todos: Array.isArray(parsed.todos) ? parsed.todos.map((todo) => normalizeTodoRecord(todo)) : []
       };

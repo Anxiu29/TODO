@@ -4,6 +4,7 @@
  * 功能：今日待办列表、内联/弹窗编辑、完成/删除（确认 + 撤回）、紧急评分、
  * 标签与步骤（边做边加、用时）、等待中（含等待天数）、右键查看添加时间与已过天数、置顶切换、完成区预览、
  * 打开日历/设置/添加窗口（全局快捷键仍可唤起同一添加窗）。
+ * 标签筛选写入 settings.tagFilter，重启/开机自启后恢复上次选中的标签页。
  * 数据通过 window.todoApi 与主进程同步，并订阅 IPC 推送保持多窗口一致。
  */
 import { Calendar, CalendarClock, Hourglass, ListTodo, Minus, Pin, Settings, Tag, Trash2, X } from "lucide-react";
@@ -125,8 +126,10 @@ export default function App(): React.ReactElement {
   /** 右键菜单：添加时间 + 编辑标签；坐标为视口 clientX/Y */
   const [contextMenu, setContextMenu] = useState<TodoContextMenu | null>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
-  /** null=全部；否则按标签筛选今日待办 */
+  /** null=全部；否则按标签筛选今日待办；与 settings.tagFilter 同步持久化 */
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  /** 避免启动竞态：快照未到时不要因 availableTags 为空而清掉已恢复的筛选 */
+  const tagFilterHydratedRef = useRef(false);
   /** 右键菜单内「添加步骤」输入草稿 */
   const [subtaskDraft, setSubtaskDraft] = useState("");
   /** 右键菜单展开面板：预计天数 / 标签 / 步骤 / 等待中 */
@@ -141,15 +144,31 @@ export default function App(): React.ReactElement {
   const waitingReasonDraftRef = useRef("");
   waitingReasonDraftRef.current = waitingReasonDraft;
 
+  /** 写入标签筛选并同步本地状态（重启/自启后由此恢复） */
+  const persistTagFilter = (next: string | null): void => {
+    setTagFilter(next);
+    void window.todoApi.setTagFilter(next).then(setSettings);
+  };
+
   /** 挂载时拉取初始数据，并订阅主进程推送；unmount 时取消全部监听 */
   useEffect(() => {
     void window.todoApi.getSnapshot().then(setSnapshot);
-    void window.todoApi.getSettings().then(setSettings);
+    void window.todoApi.getSettings().then((next) => {
+      setSettings(next);
+      setTagFilter(next.tagFilter ?? null);
+      tagFilterHydratedRef.current = true;
+    });
     void window.todoApi.getFloatOnPage().then(setIsFloatingOnPage);
 
     const offTodos = window.todoApi.onTodosChanged(setSnapshot);
     const offDesktop = window.todoApi.onDesktopAttachResult(setDesktopAttached);
-    const offSettings = window.todoApi.onSettingsChanged(setSettings);
+    const offSettings = window.todoApi.onSettingsChanged((next) => {
+      setSettings(next);
+      // 仅在已完成首次水合后跟随设置，避免覆盖本地尚未写入的点击
+      if (tagFilterHydratedRef.current) {
+        setTagFilter(next.tagFilter ?? null);
+      }
+    });
     const offFloat = window.todoApi.onFloatStateChanged(setIsFloatingOnPage);
     return () => {
       offTodos();
@@ -315,12 +334,18 @@ export default function App(): React.ReactElement {
     return snapshot.activeTodos.filter((todo) => todo.tags.includes(tagFilter));
   }, [snapshot.activeTodos, tagFilter]);
 
-  /** 当前筛选标签已不存在时（例如最后一条带该标签的待办被删），自动回到「全部」 */
+  /**
+   * 当前筛选标签已失效时回到「全部」并落盘。
+   * 快照未加载（today 为空）时不清理，避免启动瞬间冲掉记忆的标签页。
+   */
   useEffect(() => {
-    if (tagFilter && !availableTags.includes(tagFilter)) {
-      setTagFilter(null);
+    if (!snapshot.today || !tagFilterHydratedRef.current || !tagFilter) return;
+    if (availableTags.includes(tagFilter)) return;
+    // 仍有可选标签或今日仍有待办时，说明选中标签确实消失了
+    if (availableTags.length > 0 || snapshot.activeTodos.length > 0) {
+      persistTagFilter(null);
     }
-  }, [availableTags, tagFilter]);
+  }, [availableTags, tagFilter, snapshot.today, snapshot.activeTodos.length]);
 
   const remainingLabel = useMemo(() => {
     if (snapshot.activeTodos.length === 0) return "今天没有待办";
@@ -541,7 +566,7 @@ export default function App(): React.ReactElement {
             <button
               type="button"
               className={`tag-filter-chip${tagFilter === null ? " active" : ""}`}
-              onClick={() => setTagFilter(null)}
+              onClick={() => persistTagFilter(null)}
             >
               全部
             </button>
@@ -550,7 +575,7 @@ export default function App(): React.ReactElement {
                 key={tag}
                 type="button"
                 className={`tag-filter-chip${tagFilter === tag ? " active" : ""}`}
-                onClick={() => setTagFilter(tag)}
+                onClick={() => persistTagFilter(tag)}
               >
                 {tag}
               </button>
