@@ -4,7 +4,14 @@
  * 主进程 TodoStore 与 Vitest 单元测试共用此模块，保证排序、日切、
  * 日历聚合等逻辑在两端行为一致。
  */
-import type { Todo, TodoCalendarDay, TodoDatabase, TodoSnapshot, TodoStatus } from "../types/todo";
+import type {
+  Todo,
+  TodoCalendarDay,
+  TodoDatabase,
+  TodoSnapshot,
+  TodoStatus,
+  TodoSubtask
+} from "../types/todo";
 import { normalizeTodoRating } from "../types/todo";
 
 /** 将日期格式化为 YYYY-MM-DD，作为待办的「归属日」键 */
@@ -38,6 +45,19 @@ export const daysBetweenDateKeys = (from: string, to: string): number => {
   const startFrom = new Date(Number(fromMatch[1]), Number(fromMatch[2]) - 1, Number(fromMatch[3]));
   const startTo = new Date(Number(toMatch[1]), Number(toMatch[2]) - 1, Number(toMatch[3]));
   return Math.max(0, Math.floor((startTo.getTime() - startFrom.getTime()) / 86_400_000));
+};
+
+/** 步骤用时/已进行文案；today 为当前本地日 YYYY-MM-DD */
+export const formatStepDaysLabel = (subtask: TodoSubtask, today: string): string => {
+  if (subtask.done) {
+    const end = subtask.completedAt ?? subtask.createdAt;
+    const days = daysBetweenDateKeys(subtask.createdAt, end);
+    if (days === 0) return "当天完成";
+    return `用时 ${days} 天`;
+  }
+  const days = daysBetweenDateKeys(subtask.createdAt, today);
+  if (days === 0) return "今天添加";
+  return `已进行 ${days} 天`;
 };
 
 /**

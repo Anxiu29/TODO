@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildTodoSnapshot,
   daysBetweenDateKeys,
+  formatStepDaysLabel,
   getCalendarForMonth,
   refreshDatabaseForDate,
   updateTodoTitle
@@ -36,7 +37,7 @@ const database: TodoDatabase = {
       status: "active",
       rating: 2,
       tags: ["工作"],
-      subtasks: [{ id: "s1", title: "子项", done: false }]
+      subtasks: [{ id: "s1", title: "子项", done: false, createdAt: "2026-07-01" }]
     },
     {
       id: "completed-1",
@@ -130,13 +131,39 @@ describe("todo tags and appearance normalize", () => {
 
   it("normalizes subtasks and drops invalid entries", () => {
     expect(
-      normalizeTodoSubtasks([
-        { id: "a", title: " 完成文档 ", done: true },
-        { id: "", title: "无效" },
-        { id: "b", title: "" },
-        null
-      ])
-    ).toEqual([{ id: "a", title: "完成文档", done: true }]);
+      normalizeTodoSubtasks(
+        [
+          { id: "a", title: " 完成文档 ", done: true },
+          { id: "", title: "无效" },
+          { id: "b", title: "" },
+          null
+        ],
+        "2026-07-01"
+      )
+    ).toEqual([
+      { id: "a", title: "完成文档", done: true, createdAt: "2026-07-01", completedAt: "2026-07-01" }
+    ]);
+  });
+
+  it("fills missing step dates from fallback and strips completedAt when open", () => {
+    expect(
+      normalizeTodoSubtasks(
+        [
+          { id: "open", title: "进行中", done: false, completedAt: "2026-07-02" },
+          { id: "done", title: "已完成", done: true, createdAt: "2026-06-28" }
+        ],
+        "2026-07-01"
+      )
+    ).toEqual([
+      { id: "open", title: "进行中", done: false, createdAt: "2026-07-01" },
+      {
+        id: "done",
+        title: "已完成",
+        done: true,
+        createdAt: "2026-06-28",
+        completedAt: "2026-06-28"
+      }
+    ]);
   });
 
   it("normalizes theme and opacity", () => {
@@ -225,5 +252,28 @@ describe("todo waiting status", () => {
     expect(daysBetweenDateKeys("2026-07-01", "2026-07-02")).toBe(1);
     expect(daysBetweenDateKeys("2026-06-28", "2026-07-01")).toBe(3);
     expect(daysBetweenDateKeys("bad", "2026-07-01")).toBe(0);
+  });
+});
+
+describe("todo step duration labels", () => {
+  it("formats open and completed step day labels", () => {
+    expect(
+      formatStepDaysLabel({ id: "1", title: "a", done: false, createdAt: "2026-07-01" }, "2026-07-01")
+    ).toBe("今天添加");
+    expect(
+      formatStepDaysLabel({ id: "1", title: "a", done: false, createdAt: "2026-06-28" }, "2026-07-01")
+    ).toBe("已进行 3 天");
+    expect(
+      formatStepDaysLabel(
+        { id: "1", title: "a", done: true, createdAt: "2026-07-01", completedAt: "2026-07-01" },
+        "2026-07-05"
+      )
+    ).toBe("当天完成");
+    expect(
+      formatStepDaysLabel(
+        { id: "1", title: "a", done: true, createdAt: "2026-06-28", completedAt: "2026-07-01" },
+        "2026-07-05"
+      )
+    ).toBe("用时 3 天");
   });
 });

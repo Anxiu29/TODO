@@ -2,7 +2,7 @@
  * 桌面挂件主界面（?view=widget）。
  *
  * 功能：今日待办列表、内联/弹窗编辑、完成/删除（确认 + 撤回）、紧急评分、
- * 标签与子任务、等待中（含等待天数）、右键查看添加时间与已过天数、置顶切换、完成区预览、
+ * 标签与步骤（边做边加、用时）、等待中（含等待天数）、右键查看添加时间与已过天数、置顶切换、完成区预览、
  * 打开日历/设置/添加窗口（全局快捷键仍可唤起同一添加窗）。
  * 数据通过 window.todoApi 与主进程同步，并订阅 IPC 推送保持多窗口一致。
  */
@@ -127,9 +127,9 @@ export default function App(): React.ReactElement {
   const contextMenuRef = useRef<HTMLDivElement>(null);
   /** null=全部；否则按标签筛选今日待办 */
   const [tagFilter, setTagFilter] = useState<string | null>(null);
-  /** 右键菜单内「添加子任务」输入草稿 */
+  /** 右键菜单内「添加步骤」输入草稿 */
   const [subtaskDraft, setSubtaskDraft] = useState("");
-  /** 右键菜单展开面板：预计天数 / 标签 / 子任务 / 等待中 */
+  /** 右键菜单展开面板：预计天数 / 标签 / 步骤 / 等待中 */
   const [contextPanel, setContextPanel] = useState<ContextPanel>(null);
   /** 预计完成天数输入草稿；点「确定」才落盘 */
   const [dueDaysDraft, setDueDaysDraft] = useState("");
@@ -660,6 +660,7 @@ export default function App(): React.ReactElement {
                 </div>
                 <TodoSubtasks
                   subtasks={todo.subtasks}
+                  today={snapshot.today}
                   onToggle={(subtaskId) => {
                     void window.todoApi.toggleTodoSubtask(todo.id, subtaskId).then(setSnapshot);
                   }}
@@ -876,8 +877,8 @@ export default function App(): React.ReactElement {
               <button
                 type="button"
                 className={`todo-context-icon-button${contextMenuTodo.subtasks.length > 0 ? " has-value" : ""}${contextPanel === "subtasks" ? " open" : ""}`}
-                title="子任务"
-                aria-label="子任务"
+                title="步骤"
+                aria-label="步骤"
                 aria-expanded={contextPanel === "subtasks"}
                 onClick={() => toggleContextPanel("subtasks")}
               >
@@ -967,7 +968,7 @@ export default function App(): React.ReactElement {
                   event.preventDefault();
                   const title = subtaskDraft.trim();
                   if (!title) return;
-                  // 添加成功即关闭整菜单，避免操作完仍留着外壳
+                  // 添加成功即关闭整菜单，继续添加再右键打开
                   void window.todoApi.addTodoSubtask(contextMenuTodo.id, title).then((next) => {
                     setSnapshot(next);
                     setContextMenu(null);
@@ -978,8 +979,8 @@ export default function App(): React.ReactElement {
                   <input
                     value={subtaskDraft}
                     onChange={(event) => setSubtaskDraft(event.target.value)}
-                    placeholder="添加子任务…"
-                    aria-label="添加子任务"
+                    placeholder="添加步骤…"
+                    aria-label="添加步骤"
                     maxLength={80}
                     autoFocus
                   />

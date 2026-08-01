@@ -26,11 +26,15 @@ export type TodoStatus = "active" | "waiting" | "completed";
 /** 等待原因最大字符数（trim 后截断） */
 export const WAITING_REASON_MAX_LEN = 40;
 
-/** 待办下的子任务勾选项 */
+/** 待办下的步骤勾选项（持久化字段名仍为 subtasks） */
 export type TodoSubtask = {
   id: string;
   title: string;
   done: boolean;
+  /** 添加日 YYYY-MM-DD */
+  createdAt: string;
+  /** 勾选完成日 YYYY-MM-DD；未完成时无此字段 */
+  completedAt?: string;
 };
 
 /** 界面主题 */
@@ -93,24 +97,51 @@ export const normalizeTodoTags = (tags?: unknown): string[] => {
   return result.slice(0, TODO_TAGS_MAX);
 };
 
-/** 规范化子任务列表 */
-export const normalizeTodoSubtasks = (subtasks?: unknown): TodoSubtask[] => {
+/** 是否为合法 YYYY-MM-DD 日期键 */
+export const isDateKey = (value: unknown): value is string =>
+  typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+/**
+ * 规范化步骤列表。
+ * - 缺 createdAt 时用 fallbackDate（加载时一般为今天或父任务 scheduledDate）
+ * - done 且缺 completedAt 时回退 createdAt（旧数据不夸大用时）
+ * - 未完成则不写 completedAt
+ */
+export const normalizeTodoSubtasks = (subtasks?: unknown, fallbackDate?: string): TodoSubtask[] => {
   if (!Array.isArray(subtasks)) return [];
-  return subtasks
-    .map((item) => {
-      if (!item || typeof item !== "object") return null;
-      const record = item as Partial<TodoSubtask>;
-      const id = typeof record.id === "string" && record.id ? record.id : "";
-      const title = typeof record.title === "string" ? record.title.trim() : "";
-      if (!id || !title) return null;
-      return {
+  const fallback = isDateKey(fallbackDate) ? fallbackDate : "";
+  const normalized: TodoSubtask[] = [];
+
+  for (const item of subtasks) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Partial<TodoSubtask>;
+    const id = typeof record.id === "string" && record.id ? record.id : "";
+    const title = typeof record.title === "string" ? record.title.trim() : "";
+    if (!id || !title) continue;
+    const createdAt = isDateKey(record.createdAt) ? record.createdAt : fallback;
+    if (!createdAt) continue;
+
+    const done = Boolean(record.done);
+    if (done) {
+      normalized.push({
         id,
         title: title.slice(0, 80),
-        done: Boolean(record.done)
-      } satisfies TodoSubtask;
-    })
-    .filter((item): item is TodoSubtask => item !== null)
-    .slice(0, 20);
+        done: true,
+        createdAt,
+        completedAt: isDateKey(record.completedAt) ? record.completedAt : createdAt
+      });
+    } else {
+      normalized.push({
+        id,
+        title: title.slice(0, 80),
+        done: false,
+        createdAt
+      });
+    }
+    if (normalized.length >= 20) break;
+  }
+
+  return normalized;
 };
 
 export const normalizeWidgetOpacity = (opacity?: unknown): number => {
@@ -136,10 +167,6 @@ export const normalizeDueDays = (dueDays?: unknown): number | undefined => {
   if (days < DUE_DAYS_MIN) return undefined;
   return Math.min(DUE_DAYS_MAX, days);
 };
-
-/** 是否为合法 YYYY-MM-DD 日期键 */
-export const isDateKey = (value: unknown): value is string =>
-  typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
 
 /** 规范化等待原因；空串视为未设置 */
 export const normalizeWaitingReason = (reason?: unknown): string | undefined => {

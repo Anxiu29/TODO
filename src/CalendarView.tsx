@@ -1,12 +1,13 @@
 /**
  * 完成日历窗口（?view=calendar）。
  *
- * 左侧月历格显示每日完成数量，右侧展示选中日期的完成列表（含父任务下的子任务明细）。
+ * 左侧月历格显示每日完成数量，右侧展示选中日期的完成列表（含父任务下的步骤明细与用时）。
  * 支持编辑标题、恢复为进行中；待办变更时通过 onTodosChanged 自动刷新。
  */
 import { X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
+import { formatStepDaysLabel } from "./data/todoStore";
 import type { Todo, TodoCalendarDay } from "./types/todo";
 
 /** 周一为首的中文星期标签 */
@@ -349,9 +350,9 @@ export default function CalendarView(): React.ReactElement {
                       </button>
                     ) : null}
                   </div>
-                  {/* 完成记录附带子任务明细，只读展示勾选状态 */}
+                  {/* 完成记录附带步骤明细，只读展示勾选状态与用时 */}
                   {todo.subtasks.length > 0 ? (
-                    <ul className="detail-subtasks" aria-label={`${todo.title} 的子任务`}>
+                    <ul className="detail-subtasks" aria-label={`${todo.title} 的步骤`}>
                       {todo.subtasks.map((subtask) => (
                         <li
                           key={subtask.id}
@@ -359,6 +360,9 @@ export default function CalendarView(): React.ReactElement {
                         >
                           <span className="detail-subtask-mark" aria-hidden />
                           <span className="detail-subtask-title">{subtask.title}</span>
+                          <span className="detail-subtask-days">
+                            {formatStepDaysLabel(subtask, selectedDate)}
+                          </span>
                         </li>
                       ))}
                     </ul>

@@ -708,14 +708,20 @@ h2 {
 
 .todo-subtask {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr auto auto;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .todo-subtask.done .todo-subtask-title {
   color: var(--text-muted);
   text-decoration: line-through;
+}
+
+.todo-subtask-days {
+  color: var(--text-muted);
+  font-size: 10px;
+  white-space: nowrap;
 }
 
 .todo-subtask-check {
@@ -1879,12 +1885,18 @@ h2 {
 
 .day-detail .detail-subtask {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto;
   align-items: start;
   gap: 8px;
   font-size: 12px;
   line-height: 1.4;
   color: #334155;
+}
+
+.day-detail .detail-subtask-days {
+  color: #94a3b8;
+  font-size: 11px;
+  white-space: nowrap;
 }
 
 .day-detail .detail-subtask-mark {
@@ -2020,6 +2032,10 @@ h2 {
 
 :root[data-theme="dark"] .day-detail .detail-subtask {
   color: #cbd5e1;
+}
+
+:root[data-theme="dark"] .day-detail .detail-subtask-days {
+  color: #64748b;
 }
 
 :root[data-theme="dark"] .day-detail .detail-subtask-mark {

@@ -75,7 +75,11 @@ const normalizeTodoRecord = (todo: TodoDatabase["todos"][number]): TodoDatabase[
     ...waiting,
     rating: normalizeTodoRating(rest.rating),
     tags: normalizeTodoTags(rest.tags),
-    subtasks: normalizeTodoSubtasks(rest.subtasks),
+    // 旧步骤缺 createdAt 时回退到归属日或今天，避免加载后整条被丢弃
+    subtasks: normalizeTodoSubtasks(
+      rest.subtasks,
+      typeof rest.scheduledDate === "string" && rest.scheduledDate ? rest.scheduledDate : todayKey()
+    ),
     ...(dueDays !== undefined ? { dueDays } : {})
   };
 };
@@ -274,7 +278,7 @@ export class TodoStore {
     return this.getSnapshot();
   }
 
-  /** 追加一条子任务；空标题或已满 20 条则忽略 */
+  /** 追加一条步骤；空标题或已满 20 条则忽略；写入 createdAt=今天 */
   addTodoSubtask(id: string, title: string): TodoSnapshot {
     const todo = this.database.todos.find((item) => item.id === id);
     const trimmed = title.trim();
@@ -282,20 +286,29 @@ export class TodoStore {
       return this.getSnapshot();
     }
 
-    todo.subtasks = normalizeTodoSubtasks([
-      ...todo.subtasks,
-      { id: randomUUID(), title: trimmed, done: false } satisfies TodoSubtask
-    ]);
+    const today = todayKey();
+    todo.subtasks = normalizeTodoSubtasks(
+      [
+        ...todo.subtasks,
+        { id: randomUUID(), title: trimmed, done: false, createdAt: today } satisfies TodoSubtask
+      ],
+      today
+    );
     this.save();
     return this.getSnapshot();
   }
 
-  /** 切换子任务完成状态 */
+  /** 切换步骤完成状态；勾选写入 completedAt，取消则清除 */
   toggleTodoSubtask(id: string, subtaskId: string): TodoSnapshot {
     const todo = this.database.todos.find((item) => item.id === id);
     const subtask = todo?.subtasks.find((item) => item.id === subtaskId);
     if (subtask) {
       subtask.done = !subtask.done;
+      if (subtask.done) {
+        subtask.completedAt = todayKey();
+      } else {
+        delete subtask.completedAt;
+      }
       this.save();
     }
     return this.getSnapshot();
