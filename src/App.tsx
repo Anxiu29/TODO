@@ -2,7 +2,7 @@
  * 桌面挂件主界面（?view=widget）。
  *
  * 功能：今日待办列表、内联/弹窗编辑、完成/删除（确认 + 撤回）、紧急评分、
- * 标签与步骤（边做边加、用时）、等待中（含等待天数）、右键查看添加时间与已过天数、置顶切换、完成区预览、
+ * 标签与步骤（边做边加、用时）、等待中（含等待天数与全部等待历史）、右键查看添加时间与已过天数、置顶切换、完成区预览、
  * 打开日历/设置/添加窗口（全局快捷键仍可唤起同一添加窗）。
  * 标签筛选写入 settings.tagFilter，重启/开机自启后恢复上次选中的标签页。
  * 数据通过 window.todoApi 与主进程同步，并订阅 IPC 推送保持多窗口一致。
@@ -69,6 +69,62 @@ const formatWaitingDays = (waitingSince: string | undefined, today: string): str
   const days = daysBetweenDateKeys(waitingSince, today);
   if (days === 0) return "今天开始等待";
   return `已等待 ${days} 天`;
+};
+
+/** YYYY-MM-DD →「M月D日」，非法键原样返回 */
+const formatWaitDate = (dateKey: string): string => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
+  if (!match) return dateKey;
+  return `${Number(match[2])}月${Number(match[3])}日`;
+};
+
+/** 等待段时长文案：同日为「当天」，否则「N 天」 */
+const formatWaitSpan = (startedAt: string, endedAt: string): string => {
+  const days = daysBetweenDateKeys(startedAt, endedAt);
+  if (days === 0) return "当天";
+  return `${days} 天`;
+};
+
+/** 展示用等待行：历史段 + 当前进行中段（最新在上） */
+type WaitingViewItem = {
+  key: string;
+  startedAt: string;
+  endedAt?: string;
+  reason?: string;
+  ongoing: boolean;
+};
+
+/** 合并 waitHistory 与当前等待段，供面板时间线展示 */
+const buildWaitingViewItems = (todo: Todo, today: string): WaitingViewItem[] => {
+  const items: WaitingViewItem[] = (todo.waitHistory ?? []).map((record, index) => ({
+    key: `h-${index}-${record.startedAt}-${record.endedAt}`,
+    startedAt: record.startedAt,
+    endedAt: record.endedAt,
+    reason: record.reason,
+    ongoing: false
+  }));
+  if (todo.status === "waiting" && todo.waitingSince) {
+    items.push({
+      key: `current-${todo.waitingSince}`,
+      startedAt: todo.waitingSince,
+      reason: todo.waitingReason,
+      ongoing: true
+    });
+  }
+  // 最新一段排在前面，方便扫读
+  return items.reverse();
+};
+
+/** 单行等待历史文案（日期区间 / 时长 / 原因） */
+const formatWaitingViewItem = (item: WaitingViewItem, today: string): string => {
+  const range = item.ongoing
+    ? `${formatWaitDate(item.startedAt)} 起`
+    : `${formatWaitDate(item.startedAt)} – ${formatWaitDate(item.endedAt ?? item.startedAt)}`;
+  const span = item.ongoing
+    ? formatWaitingDays(item.startedAt, today)
+    : formatWaitSpan(item.startedAt, item.endedAt ?? item.startedAt);
+  const reason = item.reason?.trim();
+  return reason ? `${range} · ${span} · ${reason}` : `${range} · ${span}`;
 };
 
 /** 右键菜单定位信息；标签内容从 snapshot 按 id 实时取，避免编辑后菜单不同步 */
@@ -279,6 +335,11 @@ export default function App(): React.ReactElement {
   const contextMenuTodo = contextMenu
     ? snapshot.activeTodos.find((todo) => todo.id === contextMenu.id) ?? null
     : null;
+
+  /** 右键等待面板用的全部等待段（历史 + 当前） */
+  const waitingViewItems = contextMenuTodo
+    ? buildWaitingViewItems(contextMenuTodo, snapshot.today)
+    : [];
 
   /** 保存预计天数；空值表示不改动并收起面板。写入成功后关闭整菜单 */
   const commitDueDays = async (): Promise<void> => {
@@ -911,7 +972,11 @@ export default function App(): React.ReactElement {
               </button>
               <button
                 type="button"
-                className={`todo-context-icon-button${contextMenuTodo.status === "waiting" ? " has-value" : ""}${contextPanel === "waiting" ? " open" : ""}`}
+                className={`todo-context-icon-button${
+                  contextMenuTodo.status === "waiting" || (contextMenuTodo.waitHistory?.length ?? 0) > 0
+                    ? " has-value"
+                    : ""
+                }${contextPanel === "waiting" ? " open" : ""}`}
                 title="等待中"
                 aria-label="等待中"
                 aria-expanded={contextPanel === "waiting"}
@@ -1015,46 +1080,79 @@ export default function App(): React.ReactElement {
             ) : null}
 
             {contextPanel === "waiting" ? (
-              <form
-                className="todo-waiting-editor"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void commitWaiting();
-                }}
-              >
-                {contextMenuTodo.status === "waiting" ? (
-                  <span className="todo-waiting-editor-days">
-                    {formatWaitingDays(contextMenuTodo.waitingSince, snapshot.today)}
-                  </span>
-                ) : (
-                  <span className="todo-waiting-editor-hint">标记为等待中（可选填原因）</span>
-                )}
-                <input
-                  className="todo-waiting-reason-input"
-                  value={waitingReasonDraft}
-                  onChange={(event) => setWaitingReasonDraft(event.target.value)}
-                  placeholder="等待原因…"
-                  aria-label="等待原因"
-                  maxLength={WAITING_REASON_MAX_LEN}
-                  autoFocus
-                  onKeyDown={(event) => {
-                    if (event.key === "Escape") {
-                      event.preventDefault();
-                      setContextPanel(null);
-                    }
+              <div className="todo-waiting-panel">
+                <form
+                  className="todo-waiting-editor"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void commitWaiting();
                   }}
-                />
-                <div className="todo-waiting-editor-actions">
-                  <button type="submit" className="todo-due-confirm">
-                    {contextMenuTodo.status === "waiting" ? "更新" : "开始等待"}
-                  </button>
+                >
                   {contextMenuTodo.status === "waiting" ? (
-                    <button type="button" className="todo-due-clear" onClick={() => void commitResume()}>
-                      继续进行
+                    <span className="todo-waiting-editor-days">
+                      {formatWaitingDays(contextMenuTodo.waitingSince, snapshot.today)}
+                    </span>
+                  ) : (
+                    <span className="todo-waiting-editor-hint">标记为等待中（可选填原因）</span>
+                  )}
+                  <input
+                    className="todo-waiting-reason-input"
+                    value={waitingReasonDraft}
+                    onChange={(event) => setWaitingReasonDraft(event.target.value)}
+                    placeholder="等待原因…"
+                    aria-label="等待原因"
+                    maxLength={WAITING_REASON_MAX_LEN}
+                    autoFocus
+                    onKeyDown={(event) => {
+                      if (event.key === "Escape") {
+                        event.preventDefault();
+                        setContextPanel(null);
+                      }
+                    }}
+                  />
+                  <div className="todo-waiting-editor-actions">
+                    <button type="submit" className="todo-due-confirm">
+                      {contextMenuTodo.status === "waiting" ? "更新" : "开始等待"}
                     </button>
-                  ) : null}
-                </div>
-              </form>
+                    {contextMenuTodo.status === "waiting" ? (
+                      <button type="button" className="todo-due-clear" onClick={() => void commitResume()}>
+                        继续进行
+                      </button>
+                    ) : null}
+                  </div>
+                </form>
+                {/* 全部等待段：历史 + 当前进行中，只读时间线 */}
+                {waitingViewItems.length > 0 ? (
+                  <div className="todo-waiting-history" aria-label="等待记录">
+                    <div className="todo-waiting-history-title">等待记录</div>
+                    <ul className="todo-waiting-history-list">
+                      {waitingViewItems.map((item) => (
+                        <li
+                          key={item.key}
+                          className={`todo-waiting-history-item${item.ongoing ? " ongoing" : ""}`}
+                          title={formatWaitingViewItem(item, snapshot.today)}
+                        >
+                          <span className="todo-waiting-history-range">
+                            {item.ongoing
+                              ? `${formatWaitDate(item.startedAt)} 起`
+                              : `${formatWaitDate(item.startedAt)} – ${formatWaitDate(item.endedAt ?? item.startedAt)}`}
+                          </span>
+                          <span className="todo-waiting-history-span">
+                            {item.ongoing
+                              ? formatWaitingDays(item.startedAt, snapshot.today)
+                              : formatWaitSpan(item.startedAt, item.endedAt ?? item.startedAt)}
+                          </span>
+                          {item.reason ? (
+                            <span className="todo-waiting-history-reason">{item.reason}</span>
+                          ) : (
+                            <span className="todo-waiting-history-reason muted">无原因</span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
             ) : null}
           </div>
         ) : null}

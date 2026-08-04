@@ -8,11 +8,13 @@ import {
   updateTodoTitle
 } from "../src/data/todoStore";
 import {
+  appendWaitHistory,
   normalizeDueDays,
   normalizeTagFilter,
   normalizeTodoSubtasks,
   normalizeTodoTags,
   normalizeTodoWaitingFields,
+  normalizeWaitHistory,
   normalizeWidgetOpacity,
   normalizeWidgetTheme,
   type TodoDatabase
@@ -37,6 +39,7 @@ const database: TodoDatabase = {
       createdAt: "2026-07-01T08:00:00.000Z",
       scheduledDate: "2026-07-01",
       status: "active",
+      waitHistory: [],
       rating: 2,
       tags: ["工作"],
       subtasks: [{ id: "s1", title: "子项", done: false, createdAt: "2026-07-01" }]
@@ -48,6 +51,7 @@ const database: TodoDatabase = {
       scheduledDate: "2026-07-01",
       completedAt: "2026-07-01T10:00:00.000Z",
       status: "completed",
+      waitHistory: [],
       rating: 1,
       tags: [],
       subtasks: []
@@ -92,6 +96,7 @@ describe("todo daily refresh", () => {
           createdAt: "2026-07-01T08:00:00.000Z",
           scheduledDate: "2026-07-01",
           status: "active",
+          waitHistory: [],
           rating: 1,
           tags: [],
           subtasks: []
@@ -102,6 +107,7 @@ describe("todo daily refresh", () => {
           createdAt: "2026-07-01T09:00:00.000Z",
           scheduledDate: "2026-07-01",
           status: "active",
+          waitHistory: [],
           rating: 5,
           tags: [],
           subtasks: []
@@ -210,6 +216,32 @@ describe("todo tags and appearance normalize", () => {
       status: "active"
     });
   });
+
+  it("normalizes wait history and appends closed waiting segments", () => {
+    expect(
+      normalizeWaitHistory([
+        { startedAt: "2026-06-01", endedAt: "2026-06-03", reason: " 等设计 " },
+        { startedAt: "bad", endedAt: "2026-06-03" },
+        { startedAt: "2026-06-10", endedAt: "2026-06-10" }
+      ])
+    ).toEqual([
+      { startedAt: "2026-06-01", endedAt: "2026-06-03", reason: "等设计" },
+      { startedAt: "2026-06-10", endedAt: "2026-06-10" }
+    ]);
+    expect(normalizeWaitHistory(undefined)).toEqual([]);
+    expect(
+      appendWaitHistory(
+        [{ startedAt: "2026-06-01", endedAt: "2026-06-02", reason: "旧" }],
+        "2026-06-28",
+        "等接口",
+        "2026-07-01"
+      )
+    ).toEqual([
+      { startedAt: "2026-06-01", endedAt: "2026-06-02", reason: "旧" },
+      { startedAt: "2026-06-28", endedAt: "2026-07-01", reason: "等接口" }
+    ]);
+    expect(appendWaitHistory([], undefined, "x", "2026-07-01")).toEqual([]);
+  });
 });
 
 describe("todo waiting status", () => {
@@ -224,6 +256,7 @@ describe("todo waiting status", () => {
         status: "waiting",
         waitingSince: "2026-06-28",
         waitingReason: "等接口",
+        waitHistory: [{ startedAt: "2026-06-01", endedAt: "2026-06-05", reason: "等评审" }],
         rating: 3,
         tags: [],
         subtasks: []
@@ -234,6 +267,7 @@ describe("todo waiting status", () => {
         createdAt: "2026-07-01T09:00:00.000Z",
         scheduledDate: "2026-07-01",
         status: "active",
+        waitHistory: [],
         rating: 2,
         tags: [],
         subtasks: []
@@ -248,6 +282,10 @@ describe("todo waiting status", () => {
     expect(waiting?.scheduledDate).toBe("2026-07-03");
     expect(waiting?.waitingSince).toBe("2026-06-28");
     expect(waiting?.status).toBe("waiting");
+    // 日切不碰历史
+    expect(waiting?.waitHistory).toEqual([
+      { startedAt: "2026-06-01", endedAt: "2026-06-05", reason: "等评审" }
+    ]);
   });
 
   it("includes waiting todos in today's activeTodos after active items", () => {

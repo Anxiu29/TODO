@@ -25,6 +25,21 @@ export type TodoStatus = "active" | "waiting" | "completed";
 
 /** 等待原因最大字符数（trim 后截断） */
 export const WAITING_REASON_MAX_LEN = 40;
+/** 单条待办最多保留的已结束等待段数（超出丢弃最早的） */
+export const WAIT_HISTORY_MAX = 50;
+
+/**
+ * 一段已结束的等待记录。
+ * 当前进行中的等待仍用 Todo.waitingSince / waitingReason，结束后才写入本数组。
+ */
+export type TodoWaitRecord = {
+  /** 开始等待日 YYYY-MM-DD */
+  startedAt: string;
+  /** 结束等待日 YYYY-MM-DD（恢复进行或完成时写入） */
+  endedAt: string;
+  /** 该段等待原因（可选） */
+  reason?: string;
+};
 
 /** 待办下的步骤勾选项（持久化字段名仍为 subtasks） */
 export type TodoSubtask = {
@@ -175,6 +190,56 @@ export const normalizeWaitingReason = (reason?: unknown): string | undefined => 
   return trimmed || undefined;
 };
 
+/**
+ * 规范化等待历史。
+ * - 非法日期的条目丢弃；reason 经 normalizeWaitingReason
+ * - 超出 WAIT_HISTORY_MAX 时保留最近的记录
+ */
+export const normalizeWaitHistory = (history?: unknown): TodoWaitRecord[] => {
+  if (!Array.isArray(history)) return [];
+  const normalized: TodoWaitRecord[] = [];
+
+  for (const item of history) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Partial<TodoWaitRecord>;
+    if (!isDateKey(record.startedAt) || !isDateKey(record.endedAt)) continue;
+    const reason = normalizeWaitingReason(record.reason);
+    normalized.push({
+      startedAt: record.startedAt,
+      endedAt: record.endedAt,
+      ...(reason ? { reason } : {})
+    });
+  }
+
+  return normalized.length > WAIT_HISTORY_MAX
+    ? normalized.slice(-WAIT_HISTORY_MAX)
+    : normalized;
+};
+
+/**
+ * 将当前等待段追加到 waitHistory（不清除 waitingSince/waitingReason）。
+ * 无 waitingSince 时 no-op；调用方负责随后 clear 当前段字段。
+ */
+export const appendWaitHistory = (
+  history: TodoWaitRecord[] | undefined,
+  waitingSince: string | undefined,
+  waitingReason: string | undefined,
+  endedAt: string
+): TodoWaitRecord[] => {
+  if (!isDateKey(waitingSince) || !isDateKey(endedAt)) {
+    return normalizeWaitHistory(history);
+  }
+  const reason = normalizeWaitingReason(waitingReason);
+  return normalizeWaitHistory([
+    ...(history ?? []),
+    {
+      startedAt: waitingSince,
+      endedAt,
+      ...(reason ? { reason } : {})
+    }
+  ]);
+};
+
 /** 单条待办记录，持久化在 todos.json 的 todos 数组中 */
 export type Todo = {
   id: string;
@@ -192,6 +257,11 @@ export type Todo = {
   waitingSince?: string;
   /** 等待原因（可选短文本） */
   waitingReason?: string;
+  /**
+   * 已结束的等待段历史（谁写：主进程结束等待/完成时 append；谁读：挂件等待面板）。
+   * 当前进行中的一段不在此数组，见 waitingSince/waitingReason。
+   */
+  waitHistory: TodoWaitRecord[];
   /** 紧急程度 1–5，影响列表排序 */
   rating: number;
   /** 标签：至多一个分类（工作/生活/学习），可另加「紧急」与自定义标签 */

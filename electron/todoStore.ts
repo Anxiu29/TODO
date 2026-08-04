@@ -13,6 +13,7 @@ import { randomUUID } from "node:crypto";
 import { app } from "electron";
 import { buildTodoSnapshot, getCalendarForMonth, refreshDatabaseForDate, todayKey, updateTodoTitle } from "../src/data/todoStore";
 import {
+  appendWaitHistory,
   normalizeDueDays,
   normalizeTagFilter,
   normalizeTodoRating,
@@ -20,6 +21,7 @@ import {
   normalizeTodoTags,
   normalizeTodoWaitingFields,
   normalizeWaitingReason,
+  normalizeWaitHistory,
   normalizeWidgetOpacity,
   normalizeWidgetTheme,
   WIDGET_OPACITY_DEFAULT,
@@ -70,11 +72,12 @@ const normalizeTodoRecord = (todo: TodoDatabase["todos"][number]): TodoDatabase[
     todayKey()
   );
   const dueDays = normalizeDueDays(rest.dueDays);
-  // 非 waiting 时显式去掉字段，避免脏数据残留
+  // 非 waiting 时显式去掉当前段字段，避免脏数据残留；waitHistory 始终保留
   const { waitingSince: _ws, waitingReason: _wr, ...base } = rest;
   return {
     ...base,
     ...waiting,
+    waitHistory: normalizeWaitHistory(rest.waitHistory),
     rating: normalizeTodoRating(rest.rating),
     tags: normalizeTodoTags(rest.tags),
     // 旧步骤缺 createdAt 时回退到归属日或今天，避免加载后整条被丢弃
@@ -86,10 +89,23 @@ const normalizeTodoRecord = (todo: TodoDatabase["todos"][number]): TodoDatabase[
   };
 };
 
-/** 清除等待相关字段（恢复进行中或完成时调用） */
+/** 清除当前等待段字段；不影响 waitHistory */
 const clearWaitingFields = (todo: Todo): void => {
   delete todo.waitingSince;
   delete todo.waitingReason;
+};
+
+/** 结束当前等待段：归档到 waitHistory 后再清除当前段字段 */
+const archiveAndClearWaiting = (todo: Todo, endedAt = todayKey()): void => {
+  if (todo.status === "waiting" || todo.waitingSince) {
+    todo.waitHistory = appendWaitHistory(
+      todo.waitHistory,
+      todo.waitingSince,
+      todo.waitingReason,
+      endedAt
+    );
+  }
+  clearWaitingFields(todo);
 };
 
 /**
@@ -130,6 +146,7 @@ export class TodoStore {
       createdAt: timestamp,
       scheduledDate: todayKey(),
       status: "active",
+      waitHistory: [],
       rating: normalizeTodoRating(draft.rating),
       tags: normalizeTodoTags(draft.tags),
       subtasks: [],
@@ -140,13 +157,14 @@ export class TodoStore {
     return this.getSnapshot();
   }
 
-  /** 标记完成，写入 completedAt；进行中或等待中均可完成，并清除等待字段 */
+  /** 标记完成，写入 completedAt；等待中完成时先归档等待段再清除当前段字段 */
   completeTodo(id: string): TodoSnapshot {
     const todo = this.database.todos.find((item) => item.id === id);
     if (todo && (todo.status === "active" || todo.status === "waiting")) {
+      // 须在改 status 前归档，archive 依赖 waitingSince / 原 status
+      archiveAndClearWaiting(todo);
       todo.status = "completed";
       todo.completedAt = nowIso();
-      clearWaitingFields(todo);
       this.save();
     }
 
@@ -197,12 +215,12 @@ export class TodoStore {
     return this.getSnapshot();
   }
 
-  /** 等待中恢复为进行中，清除等待字段 */
+  /** 等待中恢复为进行中：当前段写入 waitHistory 后清除 */
   resumeTodo(id: string): TodoSnapshot {
     const todo = this.database.todos.find((item) => item.id === id);
     if (todo && todo.status === "waiting") {
+      archiveAndClearWaiting(todo);
       todo.status = "active";
-      clearWaitingFields(todo);
       this.save();
     }
     return this.getSnapshot();

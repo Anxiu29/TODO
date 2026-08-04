@@ -637,12 +637,18 @@ h2 {
   border-top: 1px solid var(--border-strong);
 }
 
+.todo-waiting-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-strong);
+}
+
 .todo-waiting-editor {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding-top: 6px;
-  border-top: 1px solid var(--border-strong);
   color: var(--text-muted);
   font-size: 11px;
 }
@@ -674,6 +680,75 @@ h2 {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+/* 等待记录时间线：历史段 + 当前进行中 */
+.todo-waiting-history {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-strong);
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.todo-waiting-history-title {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.todo-waiting-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.todo-waiting-history-item {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  gap: 4px 8px;
+  align-items: baseline;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.35;
+  min-width: 0;
+}
+
+.todo-waiting-history-item.ongoing {
+  color: var(--accent);
+}
+
+.todo-waiting-history-range {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.todo-waiting-history-span {
+  white-space: nowrap;
+  font-weight: 650;
+}
+
+.todo-waiting-history-reason {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-strong);
+}
+
+.todo-waiting-history-item.ongoing .todo-waiting-history-reason {
+  color: var(--accent);
+}
+
+.todo-waiting-history-reason.muted {
+  color: var(--text-muted);
+  font-weight: 400;
 }
 
 .todo-subtasks {
