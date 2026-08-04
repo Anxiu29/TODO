@@ -372,7 +372,7 @@ export default function App(): React.ReactElement {
     setContextMenu(null);
   };
 
-  /** 等待中恢复为进行中 */
+  /** 结束等待，恢复为进行中 */
   const commitResume = async (): Promise<void> => {
     if (!contextMenuTodo) return;
     const next = await window.todoApi.resumeTodo(contextMenuTodo.id);
@@ -1116,7 +1116,7 @@ export default function App(): React.ReactElement {
                     </button>
                     {contextMenuTodo.status === "waiting" ? (
                       <button type="button" className="todo-due-clear" onClick={() => void commitResume()}>
-                        继续进行
+                        结束等待
                       </button>
                     ) : null}
                   </div>
