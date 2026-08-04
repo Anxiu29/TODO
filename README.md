@@ -4,15 +4,13 @@
 
 **主推便携版**（单文件、数据跟 exe 走）；安装版仅作备选。
 
-当前版本：`0.2.24`
+当前版本：`0.2.25`
 
 **下载：** [GitHub Releases](https://github.com/Anxiu29/TODO/releases/latest) · [Gitee Releases](https://gitee.com/anxiu29/TODO/releases/latest)
 
 ## 界面预览
 
-| | |
-|:---:|:---:|
-| ![桌面挂件](docs/screenshots/widget.png) | ![快捷添加](docs/screenshots/quick-add.png)<br>![完成日历](docs/screenshots/calendar.png)<br>![偏好设置](docs/screenshots/settings.png) |
+![界面预览](docs/screenshots/showcase.png)
 
 ## 功能
 
