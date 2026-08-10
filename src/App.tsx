@@ -414,7 +414,29 @@ export default function App(): React.ReactElement {
     if (tagFilter) return `「${tagFilter}」 ${visibleTodos.length} 件`;
     return `还有 ${snapshot.activeTodos.length} 件待办`;
   }, [snapshot.activeTodos.length, tagFilter, visibleTodos.length]);
-  const unpinLabel = settings?.displayMode === "desktop" ? "取消置顶，回到桌面固定" : "取消置顶，回到普通窗口";
+  const unpinLabel =
+    settings?.displayMode === "desktop" || settings?.displayMode === "system"
+      ? "取消置顶，回到桌面固定"
+      : "取消置顶，回到普通窗口";
+  const showWidgetShortcutLabel = formatShortcut(settings?.showWidgetShortcut ?? "CommandOrControl+1");
+  /** 按壁纸软件 / 系统壁纸两种桌面固定给出提示 */
+  const footerHint = (() => {
+    if (desktopAttached === false) {
+      if (settings?.displayMode === "desktop") {
+        return "壁纸软件桌面固定暂未生效，当前以普通窗口显示；可改试「系统壁纸」模式";
+      }
+      if (settings?.displayMode === "system") {
+        return "系统壁纸桌面固定暂未生效，当前以普通窗口显示；若在用动态壁纸可改试「壁纸软件」模式";
+      }
+    }
+    if (settings?.displayMode === "desktop") {
+      return `壁纸软件桌面固定；无法点击时用 ${showWidgetShortcutLabel} 唤出`;
+    }
+    if (settings?.displayMode === "system") {
+      return `系统壁纸桌面固定；无法点击时用 ${showWidgetShortcutLabel} 唤出`;
+    }
+    return `${formatShortcut(settings?.shortcut ?? "CommandOrControl+2")} 快捷添加，托盘图标可显示组件`;
+  })();
 
   /** 标题完整显示时走内联编辑 */
   const startInlineEdit = (todo: Todo): void => {
@@ -797,11 +819,7 @@ export default function App(): React.ReactElement {
               <Icon name="settings" />
             </button>
           </div>
-          <span>
-            {desktopAttached === false
-              ? "桌面固定暂未生效，当前以普通窗口显示"
-              : `${formatShortcut(settings?.shortcut)} 呼出添加，托盘图标可显示组件`}
-          </span>
+          <span>{footerHint}</span>
         </footer>
 
         {/* 长标题截断时的编辑弹窗；放在 card 内并 no-drag，避免拖拽区吞交互 */}

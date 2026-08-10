@@ -179,7 +179,9 @@ describe("todo tags and appearance normalize", () => {
     expect(normalizeWidgetTheme("light")).toBe("light");
     expect(normalizeWidgetTheme("neon")).toBe("dark");
     expect(normalizeWidgetTheme(undefined)).toBe("dark");
-    expect(normalizeWidgetOpacity(0.3)).toBe(0.5);
+    expect(normalizeWidgetOpacity(0)).toBe(0);
+    expect(normalizeWidgetOpacity(0.3)).toBe(0.3);
+    expect(normalizeWidgetOpacity(-0.1)).toBe(0);
     expect(normalizeWidgetOpacity(1.2)).toBe(1);
     expect(normalizeWidgetOpacity(0.876)).toBe(0.88);
     expect(normalizeWidgetOpacity(undefined)).toBe(0.75);

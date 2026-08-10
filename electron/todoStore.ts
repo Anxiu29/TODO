@@ -58,8 +58,16 @@ export const createEmptyDatabase = (date = todayKey()): TodoDatabase => ({
   }
 });
 
-const normalizeDisplayMode = (displayMode: unknown): WidgetDisplayMode =>
-  displayMode === "desktop" ? "desktop" : "normal";
+const normalizeDisplayMode = (displayMode: unknown): WidgetDisplayMode => {
+  if (displayMode === "desktop" || displayMode === "system") {
+    return displayMode;
+  }
+  // 旧版「垫底」误用 HWND_BOTTOM；现并入系统壁纸桌面固定
+  if (displayMode === "bottom") {
+    return "system";
+  }
+  return "normal";
+};
 
 const normalizeTodoRecord = (todo: TodoDatabase["todos"][number]): TodoDatabase["todos"][number] => {
   // 丢弃旧版 dueAt（具体时刻），只保留/规范化 dueDays；等待字段与 status 一并规范化
@@ -414,7 +422,7 @@ export class TodoStore {
     return this.database.settings;
   }
 
-  /** 挂件卡片不透明度，clamp 到 0.5–1 */
+  /** 挂件卡片不透明度，clamp 到 0–1 */
   setWidgetOpacity(opacity: number): AppSettings {
     this.database.settings.widgetOpacity = normalizeWidgetOpacity(opacity);
     this.save();

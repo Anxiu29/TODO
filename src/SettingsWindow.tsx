@@ -5,7 +5,7 @@
  * 快捷键通过 input onKeyDown 捕获键盘事件，转换为 Electron Accelerator 格式后 IPC 注册。
  */
 import { X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import { PROJECT_RELEASE_URLS } from "./constants/projectLinks";
 import type { AppSettings, WidgetDisplayMode, WidgetTheme } from "./types/todo";
@@ -71,6 +71,9 @@ const updateStatusMessage = (status: UpdateStatus, versionInfo: AppVersionInfo |
 
 export default function SettingsWindow(): React.ReactElement {
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  /** 拖动时用本地值，避免 IPC 回写把滑块拽离 0 */
+  const [opacityDraft, setOpacityDraft] = useState<number | null>(null);
+  const opacityRequestIdRef = useRef(0);
   const [shortcutDraft, setShortcutDraft] = useState("");
   const [showWidgetShortcutDraft, setShowWidgetShortcutDraft] = useState("");
   const [message, setMessage] = useState("点击输入框后按下任意组合键");
@@ -145,11 +148,19 @@ export default function SettingsWindow(): React.ReactElement {
     setSettings(next);
   };
 
-  /** 调节挂件卡片不透明度（0.5–1） */
+  /** 调节挂件卡片不透明度（0–1）；用请求序号丢掉过期 IPC，保证能拖到 0 */
   const updateWidgetOpacity = async (opacity: number): Promise<void> => {
+    const requestId = ++opacityRequestIdRef.current;
+    setOpacityDraft(opacity);
     const next = await window.todoApi.setWidgetOpacity(opacity);
+    if (requestId !== opacityRequestIdRef.current) {
+      return;
+    }
     setSettings(next);
+    setOpacityDraft(null);
   };
+
+  const opacityValue = opacityDraft ?? settings?.widgetOpacity ?? WIDGET_OPACITY_DEFAULT;
 
   const handleCheckForUpdates = async (): Promise<void> => {
     const status = await window.todoApi.checkForUpdates();
@@ -220,10 +231,13 @@ export default function SettingsWindow(): React.ReactElement {
                 onChange={(event) => updateLaunchAtLogin(event.target.checked)}
               />
             </label>
-            <label className="settings-option">
+            <label className="settings-option vertical">
               <div>
                 <strong>组件显示方式</strong>
-                <span>普通窗口兼容性最好；桌面固定会尝试挂到 Windows 桌面层，失败时暂以普通窗口显示。</span>
+                <span>
+                  「壁纸软件」与「系统壁纸」都会把挂件固定到桌面层（Win+D 后仍可见）。请按你实际用的壁纸来源选择：Wallpaper
+                  Engine 等动态壁纸选前者；在 Windows 设置里换图片/纯色壁纸选后者。
+                </span>
               </div>
               <select
                 className="settings-select"
@@ -232,7 +246,8 @@ export default function SettingsWindow(): React.ReactElement {
                 onChange={(event) => void updateDisplayMode(event.target.value as WidgetDisplayMode)}
               >
                 <option value="normal">普通组件</option>
-                <option value="desktop">固定在桌面上</option>
+                <option value="desktop">固定在桌面（壁纸软件）</option>
+                <option value="system">固定在桌面（系统壁纸）</option>
               </select>
             </label>
           </section>
@@ -257,7 +272,7 @@ export default function SettingsWindow(): React.ReactElement {
             <label className="settings-option vertical">
               <div>
                 <strong>挂件透明度</strong>
-                <span>当前 {Math.round((settings?.widgetOpacity ?? WIDGET_OPACITY_DEFAULT) * 100)}%，数值越低越通透。</span>
+                <span>当前 {Math.round(opacityValue * 100)}%，可到 0%（全透明）；数值越低越通透。</span>
               </div>
               <input
                 className="settings-range"
@@ -265,7 +280,7 @@ export default function SettingsWindow(): React.ReactElement {
                 min={WIDGET_OPACITY_MIN}
                 max={WIDGET_OPACITY_MAX}
                 step={0.01}
-                value={settings?.widgetOpacity ?? WIDGET_OPACITY_DEFAULT}
+                value={opacityValue}
                 disabled={!settings}
                 onChange={(event) => void updateWidgetOpacity(Number(event.target.value))}
               />

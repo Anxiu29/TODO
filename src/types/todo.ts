@@ -4,8 +4,8 @@ export const TODO_RATING_MAX = 5;
 /** 新建待办默认五星；缺失/非法评分规范化时也回落到此值 */
 export const TODO_RATING_DEFAULT = 5;
 
-/** 挂件卡片透明度范围 */
-export const WIDGET_OPACITY_MIN = 0.5;
+/** 挂件卡片不透明度范围；0=全透明（仍占位，但几乎看不见也难点） */
+export const WIDGET_OPACITY_MIN = 0;
 export const WIDGET_OPACITY_MAX = 1;
 /** 挂件默认不透明度 75% */
 export const WIDGET_OPACITY_DEFAULT = 0.75;
@@ -341,8 +341,14 @@ export type TodoUpdate = {
   title: string;
 };
 
-/** 挂件基础显示模式：normal=普通窗口，desktop=贴到 Windows 桌面层（Win+D 后仍显示） */
-export type WidgetDisplayMode = "normal" | "desktop";
+/**
+ * 挂件基础显示模式：
+ * - normal：普通窗口
+ * - desktop：桌面固定·壁纸软件（优先附着已有 WorkerW，适配 Wallpaper Engine 等）
+ * - system：桌面固定·系统壁纸（主动生成 WorkerW，适配 Windows 设置里的图片/纯色壁纸）
+ * 后两者均为 SetParent 桌面层，Win+D 后仍可见。
+ */
+export type WidgetDisplayMode = "normal" | "desktop" | "system";
 
 /** 规范化挂件标签筛选；null/空=全部，非法值回退全部 */
 export const normalizeTagFilter = (value?: unknown): string | null => {
@@ -363,7 +369,7 @@ export type AppSettings = {
   showWidgetShortcut: string;
   /** 界面主题 */
   theme: WidgetTheme;
-  /** 挂件卡片不透明度 0.5–1 */
+  /** 挂件卡片不透明度 0–1 */
   widgetOpacity: number;
   /** 挂件标签筛选；null=全部，重启/自启后恢复 */
   tagFilter: string | null;
