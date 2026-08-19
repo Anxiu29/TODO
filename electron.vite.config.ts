@@ -22,6 +22,15 @@ export default defineConfig({
   renderer: {
     root: ".",
     plugins: [react()],
+    // 预打包常用依赖，避免首次打开窗口时再扫 lucide-react 整包
+    optimizeDeps: {
+      include: ["react", "react-dom", "react-dom/client", "lucide-react"]
+    },
+    server: {
+      warmup: {
+        clientFiles: ["./src/main.tsx", "./src/App.tsx", "./src/styles.css"]
+      }
+    },
     build: {
       rollupOptions: {
         input: resolve(__dirname, "index.html")

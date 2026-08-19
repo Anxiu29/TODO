@@ -1,22 +1,20 @@
 /**
  * 渲染进程入口。
  *
- * 各窗口共用此 HTML/JS bundle，通过 URL 查询参数 ?view= 路由到不同组件：
- * - widget（默认）→ App 桌面挂件
- * - add → AddTodoWindow 快捷添加
- * - edit → EditTodoWindow 独立编辑标题
- * - calendar → CalendarView 完成日历
- * - settings → SettingsWindow 偏好设置
+ * 各窗口共用此 HTML，通过 URL 查询参数 ?view= 路由到不同组件：
+ * - widget（默认）→ App 桌面挂件（启动热路径，同步加载）
+ * - add / edit / calendar / settings → 按需加载，避免 dev 首次编译把全部窗口打成一包
  */
-import React, { useEffect } from "react";
+import React, { lazy, Suspense, useEffect } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
-import AddTodoWindow from "./AddTodoWindow";
-import EditTodoWindow from "./EditTodoWindow";
-import CalendarView from "./CalendarView";
-import SettingsWindow from "./SettingsWindow";
 import { applyAppearance } from "./theme";
 import "./styles.css";
+
+const AddTodoWindow = lazy(() => import("./AddTodoWindow"));
+const EditTodoWindow = lazy(() => import("./EditTodoWindow"));
+const CalendarView = lazy(() => import("./CalendarView"));
+const SettingsWindow = lazy(() => import("./SettingsWindow"));
 
 const view = new URLSearchParams(window.location.search).get("view") ?? "widget";
 
@@ -46,7 +44,9 @@ const View = (): React.ReactElement => {
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <AppearanceSync>
-      <View />
+      <Suspense fallback={null}>
+        <View />
+      </Suspense>
     </AppearanceSync>
   </React.StrictMode>
 );
