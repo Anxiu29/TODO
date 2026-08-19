@@ -80,13 +80,23 @@ let widgetResizeDetached = false;
 /** 当前是否处于悬浮模式（手动置顶 或 临时显示） */
 const isFloating = (): boolean => pinnedFloat || temporaryFloat;
 
-/** 快捷添加窗口是否正在显示（用于避免其它窗口抢焦点导致其立即 hide） */
-const isAddTodoWindowOpen = (): boolean =>
-  !!addTodoWindow && !addTodoWindow.isDestroyed() && addTodoWindow.isVisible();
+/** 窗口当前是否可见（未销毁且 isVisible） */
+const isWindowVisible = (window: BrowserWindow | null): boolean =>
+  !!window && !window.isDestroyed() && window.isVisible();
 
-/** 挂件抢焦点前确认不会关掉快捷添加 */
+/** 快捷添加窗口是否正在显示（用于避免其它窗口抢焦点导致其立即 hide） */
+const isAddTodoWindowOpen = (): boolean => isWindowVisible(addTodoWindow);
+
+/** 日历/设置打开时勿抬挂件，否则重叠区会盖住关闭按钮；与添加窗同一类例外 */
+const isCalendarOrSettingsOpen = (): boolean =>
+  isWindowVisible(calendarWindow) || isWindowVisible(settingsWindow);
+
+/** 添加 / 日历 / 设置任一打开时，挂件不要 ShowWindow 抢层级 */
+const shouldSkipWidgetRaise = (): boolean => isAddTodoWindowOpen() || isCalendarOrSettingsOpen();
+
+/** 挂件抢焦点前确认不会盖住添加/日历/设置 */
 const focusWidgetIfSafe = (): void => {
-  if (!widgetWindow || isAddTodoWindowOpen()) {
+  if (!widgetWindow || shouldSkipWidgetRaise()) {
     return;
   }
   widgetWindow.focus();
@@ -289,7 +299,7 @@ const startDesktopInputWatch = (): void => {
       return;
     }
 
-    if (isAddTodoWindowOpen()) {
+    if (shouldSkipWidgetRaise()) {
       return;
     }
 
@@ -318,8 +328,8 @@ const wakeWidgetForInteraction = (): void => {
     return;
   }
 
-  // 快捷添加打开时勿抢焦点，否则会触发 add 窗口 blur→hide
-  if (isAddTodoWindowOpen()) {
+  // 添加/日历/设置打开时勿抢焦点或层级
+  if (shouldSkipWidgetRaise()) {
     return;
   }
 
