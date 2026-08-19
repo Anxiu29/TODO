@@ -336,6 +336,11 @@ export type QuickAddFocusPayload = {
   tags: string[];
 };
 
+/** 独立编辑窗打开/切换待办时携带的 id（主进程 → 渲染进程） */
+export type EditTodoPayload = {
+  id: string;
+};
+
 /** 编辑待办时的可更新字段 */
 export type TodoUpdate = {
   title: string;

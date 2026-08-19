@@ -5,10 +5,11 @@
  * 特点：失焦自动隐藏、Enter / 确认按钮提交后关闭、Escape 关闭、
  * 再次按快捷键时通过 quick-add:focus 事件重新聚焦输入框；
  * 提交前可点选星级（默认五星）、可选预计天数；
- * 若从某标签筛选下打开则自动带上该标签。
+ * 若从某标签筛选下打开则自动带上该标签；
+ * 标题一行放不下时自动换行，窗口随内容增高。
  */
 import { Star, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type React from "react";
 import { TodoTagChips } from "./TodoTags";
 import {
@@ -28,7 +29,35 @@ export default function AddTodoWindow(): React.ReactElement {
   const [tags, setTags] = useState<string[]>([]);
   /** 预计天数草稿；空字符串表示不设置 */
   const [dueDaysDraft, setDueDaysDraft] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const cardRef = useRef<HTMLFormElement>(null);
+
+  /** 标题区随内容增高；量高度时关掉滚动，避免空内容也挤出滚轮 */
+  const syncTitleFieldHeight = (): void => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  };
+
+  useLayoutEffect(() => {
+    syncTitleFieldHeight();
+  }, [title]);
+
+  useEffect(() => {
+    const card = cardRef.current;
+    if (!card) return;
+
+    const syncWindowHeight = (): void => {
+      const height = Math.ceil(card.scrollHeight);
+      void window.todoApi.resizeAddTodoWindow(height);
+    };
+
+    syncWindowHeight();
+    const observer = new ResizeObserver(syncWindowHeight);
+    observer.observe(card);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     /** 每次唤起：同步预填标签、恢复默认星级/天数，并延迟聚焦输入框 */
@@ -60,7 +89,7 @@ export default function AddTodoWindow(): React.ReactElement {
 
   const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
-    const value = title.trim();
+    const value = title.replace(/\s+/g, " ").trim();
     if (!value) return;
 
     const dueDays = normalizeDueDays(dueDaysDraft);
@@ -84,7 +113,7 @@ export default function AddTodoWindow(): React.ReactElement {
 
   return (
     <main className="quick-add-shell">
-      <form className="quick-add-card" onSubmit={submit}>
+      <form className="quick-add-card" ref={cardRef} onSubmit={submit}>
         <header className="quick-add-header">
           <div>
             <p className="eyebrow">添加待办</p>
@@ -148,11 +177,19 @@ export default function AddTodoWindow(): React.ReactElement {
           />
           <span className="quick-add-due-unit">天</span>
         </div>
-        <input
+        <textarea
           className="quick-add-title-input no-drag"
           ref={inputRef}
+          rows={1}
           value={title}
           onChange={(event) => setTitle(event.target.value)}
+          onKeyDown={(event) => {
+            // Enter 提交；换行只靠自动折行，避免标题里塞进硬回车
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              event.currentTarget.form?.requestSubmit();
+            }
+          }}
           placeholder="输入待办标题"
           aria-label="新的待办事项"
         />

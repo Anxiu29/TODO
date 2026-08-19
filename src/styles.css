@@ -62,7 +62,8 @@ body {
 }
 
 body[data-view="widget"],
-body[data-view="add"] {
+body[data-view="add"],
+body[data-view="edit"] {
   overflow: hidden;
 }
 
@@ -863,7 +864,7 @@ h2 {
   color: #0369a1;
 }
 
-/* 长标题编辑弹窗：遮罩盖住挂件内容，对话框用实色避免透明窗看不清 */
+/* 删除确认弹窗：遮罩盖住挂件内容，对话框用实色避免透明窗看不清 */
 .todo-edit-modal-backdrop {
   position: absolute;
   inset: 0;
@@ -903,24 +904,6 @@ h2 {
   color: var(--text-strong);
 }
 
-.todo-edit-modal-textarea {
-  width: 100%;
-  min-height: 96px;
-  resize: vertical;
-  border: 1px solid var(--accent-border);
-  border-radius: 12px;
-  background: var(--input-bg);
-  color: var(--text-strong);
-  font: inherit;
-  line-height: 1.45;
-  padding: 10px 12px;
-}
-
-.todo-edit-modal-textarea:focus {
-  outline: 2px solid #38bdf8;
-  outline-offset: 1px;
-}
-
 .todo-edit-modal-actions {
   display: flex;
   justify-content: flex-end;
@@ -928,7 +911,6 @@ h2 {
 }
 
 .todo-edit-modal-cancel,
-.todo-edit-modal-save,
 .todo-edit-modal-danger {
   border: 0;
   border-radius: 999px;
@@ -944,15 +926,6 @@ h2 {
 
 .todo-edit-modal-cancel:hover {
   color: var(--text);
-}
-
-.todo-edit-modal-save {
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
-.todo-edit-modal-save:hover {
-  filter: brightness(0.97);
 }
 
 .todo-edit-modal-danger {
@@ -1231,7 +1204,8 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  height: 100vh;
+  height: auto;
+  box-sizing: border-box;
   border: 1px solid rgba(255, 255, 255, 0.55);
   border-radius: 28px;
   box-shadow: none;
@@ -1239,7 +1213,16 @@ h2 {
 }
 
 .quick-add-title-input {
+  box-sizing: border-box;
   font-size: 18px;
+  line-height: 1.45;
+  resize: none;
+  /* 一行装得下就增高换行，不要提前出滚轮；padding 已含在 min-height 里 */
+  overflow: hidden;
+  min-height: calc(1.45em + 24px);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 /* 快捷添加：提交前点选紧急星级，默认五星 */
@@ -1649,7 +1632,8 @@ h2 {
 
 .calendar-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 220px;
+  /* 右侧完成列表需要够宽，否则中等长度标题也会和「恢复」挤成两行 */
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 280px);
   gap: 14px;
   flex: 1;
   min-height: 0;
@@ -1865,8 +1849,10 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
   min-height: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   border: 1px solid #e2e8f0;
   border-radius: 18px;
   background: rgba(248, 250, 252, 0.92);
@@ -1910,6 +1896,7 @@ h2 {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
   border-radius: 12px;
   background: #ffffff;
   border: 1px solid #e2e8f0;
@@ -1918,14 +1905,21 @@ h2 {
 }
 
 .day-detail .detail-item-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: start;
-  gap: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
 }
 
 .day-detail .detail-item .todo-title-button {
+  /* 覆盖挂件列表的两行截断，日历详情改为整行换行展示全文 */
+  display: block;
+  width: 100%;
   min-width: 0;
+  -webkit-line-clamp: unset;
+  -webkit-box-orient: unset;
+  overflow: visible;
   border-radius: 0;
   background: transparent;
   padding: 0;
@@ -1942,6 +1936,8 @@ h2 {
 }
 
 .day-detail .detail-reopen-button {
+  align-self: flex-end;
+  flex-shrink: 0;
   font-size: 12px;
   padding: 6px 10px;
   background: #e0f2fe;
@@ -1960,15 +1956,16 @@ h2 {
 
 .day-detail .detail-subtask {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
-  gap: 8px;
+  gap: 4px 8px;
   font-size: 12px;
   line-height: 1.4;
   color: #334155;
 }
 
 .day-detail .detail-subtask-days {
+  grid-column: 2;
   color: #94a3b8;
   font-size: 11px;
   white-space: nowrap;

@@ -7,6 +7,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type {
   AppSettings,
+  EditTodoPayload,
   QuickAddFocusPayload,
   ShortcutRegistrationResult,
   TodoCalendarDay,
@@ -73,8 +74,12 @@ const api = {
     ipcRenderer.invoke("windows:openAddTodo", options),
   openCalendar: (): Promise<void> => ipcRenderer.invoke("windows:openCalendar"),
   openSettings: (): Promise<void> => ipcRenderer.invoke("windows:openSettings"),
+  /** 打开独立编辑窗；不占用挂件内部空间 */
+  openEditTodo: (todoId: string): Promise<void> => ipcRenderer.invoke("windows:openEditTodo", todoId),
   /** 隐藏当前窗口（快捷添加窗口 blur 时也走此通道） */
   closeCurrentWindow: (): Promise<void> => ipcRenderer.invoke("windows:closeCurrent"),
+  /** 添加/编辑窗标题换行后，按卡片高度调整窗口 */
+  resizeAddTodoWindow: (height: number): Promise<void> => ipcRenderer.invoke("windows:resizeAddTodo", height),
   wakeWidget: (): Promise<void> => ipcRenderer.invoke("widget:wake"),
   prepareWidgetDrag: (): Promise<void> => ipcRenderer.invoke("widget:prepareDrag"),
   getFloatOnPage: (): Promise<boolean> => ipcRenderer.invoke("widget:getFloatOnPage"),
@@ -120,6 +125,13 @@ const api = {
       callback(payload ?? { tags: [] });
     ipcRenderer.on("quick-add:focus", listener);
     return () => ipcRenderer.removeListener("quick-add:focus", listener);
+  },
+  /** 编辑窗被再次唤起或切换待办时灌入标题 */
+  onEditTodoOpen: (callback: (payload: EditTodoPayload) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, payload: EditTodoPayload): void =>
+      callback(payload);
+    ipcRenderer.on("edit-todo:open", listener);
+    return () => ipcRenderer.removeListener("edit-todo:open", listener);
   },
   onUpdateStatusChanged: (callback: (status: UpdateStatus) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, status: UpdateStatus): void => callback(status);

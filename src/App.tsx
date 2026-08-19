@@ -1,7 +1,7 @@
 /**
  * 桌面挂件主界面（?view=widget）。
  *
- * 功能：今日待办列表、内联/弹窗编辑、完成/删除（确认 + 撤回）、紧急评分、
+ * 功能：今日待办列表、独立窗口编辑标题、完成/删除（确认 + 撤回）、紧急评分、
  * 标签与步骤（边做边加、用时）、等待中（含等待天数与全部等待历史）、右键查看添加时间与已过天数、置顶切换、完成区预览、
  * 打开日历/设置/添加窗口（全局快捷键仍可唤起同一添加窗）。
  * 标签筛选写入 settings.tagFilter，重启/开机自启后恢复上次选中的标签页。
@@ -158,17 +158,6 @@ const Icon = ({ name }: { name: IconName }): React.ReactElement => {
 
 export default function App(): React.ReactElement {
   const [snapshot, setSnapshot] = useState<TodoSnapshot>(emptySnapshot);
-  /** 当前正在内联编辑的待办 id */
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingTitle, setEditingTitle] = useState("");
-  /** Escape 取消编辑时会触发 blur，此 ref 阻止 blur 误保存 */
-  const skipBlurSaveRef = useRef(false);
-  /**
-   * 内联单行装不下完整标题时用弹窗编辑。
-   * null=未打开；打开时与内联编辑互斥。
-   */
-  const [editModal, setEditModal] = useState<{ id: string; title: string } | null>(null);
-  const editModalTextareaRef = useRef<HTMLTextAreaElement>(null);
   /** 删除确认弹窗；确认后才真正调用 deleteTodo */
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; title: string } | null>(null);
   /** 删除成功后的撤回条；超时自动消失 */
@@ -318,7 +307,7 @@ export default function App(): React.ReactElement {
     };
   }, [contextMenu]);
 
-  /** 将浮层钳制在窗口内；仅在打开菜单时计算一次，避免编辑时重算导致按钮错位 */
+  /** 将浮层钳制在窗口内；仅在菜单打开时算一次，避免后续重绘把按钮挤偏 */
   useLayoutEffect(() => {
     if (!contextMenu || !contextMenuRef.current) return;
 
@@ -438,114 +427,11 @@ export default function App(): React.ReactElement {
     return `${formatShortcut(settings?.shortcut ?? "CommandOrControl+2")} 快捷添加，托盘图标可显示组件`;
   })();
 
-  /** 标题完整显示时走内联编辑 */
-  const startInlineEdit = (todo: Todo): void => {
-    setEditModal(null);
-    setEditingId(todo.id);
-    setEditingTitle(todo.title);
+  /** 点击标题：在独立窗口编辑，避免占挂件内部空间 */
+  const openEditTodo = (todo: Todo): void => {
+    setContextMenu(null);
+    void window.todoApi.openEditTodo(todo.id);
   };
-
-  /**
-   * 点击标题：若内联单行输入装不下完整标题则弹窗，否则内联编辑。
-   * 列表仍可两行展示；这里单独按「单行宽度」判断编辑方式。
-   */
-  const handleTitleClick = (todo: Todo, event: React.MouseEvent<HTMLButtonElement>): void => {
-    const el = event.currentTarget;
-    const styles = window.getComputedStyle(el);
-    const probe = document.createElement("span");
-    probe.textContent = todo.title;
-    probe.style.cssText = [
-      "position:absolute",
-      "visibility:hidden",
-      "pointer-events:none",
-      "white-space:nowrap",
-      `font:${styles.font}`,
-      `letter-spacing:${styles.letterSpacing}`,
-      `padding-left:${styles.paddingLeft}`,
-      `padding-right:${styles.paddingRight}`
-    ].join(";");
-    document.body.appendChild(probe);
-    const needsModal = probe.offsetWidth > el.clientWidth + 1;
-    probe.remove();
-
-    if (needsModal) {
-      setEditingId(null);
-      setEditingTitle("");
-      setContextMenu(null);
-      setEditModal({ id: todo.id, title: todo.title });
-      return;
-    }
-    startInlineEdit(todo);
-  };
-
-  const cancelEdit = (): void => {
-    setEditingId(null);
-    setEditingTitle("");
-  };
-
-  const closeEditModal = (): void => {
-    setEditModal(null);
-  };
-
-  const saveEdit = async (): Promise<void> => {
-    if (!editingId) return;
-
-    const title = editingTitle.trim();
-    if (!title) {
-      cancelEdit();
-      return;
-    }
-
-    const next = await window.todoApi.updateTodo(editingId, { title });
-    setSnapshot(next);
-    cancelEdit();
-  };
-
-  /** 弹窗内保存标题；空标题视为取消 */
-  const saveEditModal = async (): Promise<void> => {
-    if (!editModal) return;
-
-    const title = editModal.title.trim();
-    if (!title) {
-      closeEditModal();
-      return;
-    }
-
-    const next = await window.todoApi.updateTodo(editModal.id, { title });
-    setSnapshot(next);
-    closeEditModal();
-  };
-
-  const handleEditBlur = (): void => {
-    if (skipBlurSaveRef.current) {
-      skipBlurSaveRef.current = false;
-      return;
-    }
-    void saveEdit();
-  };
-
-  /** 弹窗打开时聚焦并选中全文；Escape 关闭 */
-  useEffect(() => {
-    if (!editModal) return;
-
-    const timer = window.setTimeout(() => {
-      editModalTextareaRef.current?.focus();
-      editModalTextareaRef.current?.select();
-    }, 0);
-
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeEditModal();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.clearTimeout(timer);
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [editModal?.id]);
 
   /** 删除确认弹窗：Escape 取消 */
   useEffect(() => {
@@ -559,13 +445,6 @@ export default function App(): React.ReactElement {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [deleteConfirm?.id]);
-
-  /** 弹窗对应待办被删掉时自动关闭，避免对着幽灵数据编辑 */
-  useEffect(() => {
-    if (!editModal) return;
-    const stillExists = snapshot.activeTodos.some((todo) => todo.id === editModal.id);
-    if (!stillExists) closeEditModal();
-  }, [editModal, snapshot.activeTodos]);
 
   const handleWidgetMouseDown = (event: React.MouseEvent<HTMLElement>): void => {
     const target = event.target;
@@ -706,35 +585,14 @@ export default function App(): React.ReactElement {
                     }}
                   />
                   <div className="todo-item-body">
-                    {editingId === todo.id ? (
-                      <input
-                        className="todo-title-input"
-                        value={editingTitle}
-                        onChange={(event) => setEditingTitle(event.target.value)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") {
-                            event.preventDefault();
-                            void saveEdit();
-                          }
-                          if (event.key === "Escape") {
-                            skipBlurSaveRef.current = true;
-                            cancelEdit();
-                          }
-                        }}
-                        onBlur={handleEditBlur}
-                        aria-label="编辑待办标题"
-                        autoFocus
-                      />
-                    ) : (
-                      <button
-                        type="button"
-                        className="todo-title-button"
-                        title={todo.title}
-                        onClick={(event) => handleTitleClick(todo, event)}
-                      >
-                        {todo.title}
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      className="todo-title-button"
+                      title={todo.title}
+                      onClick={() => openEditTodo(todo)}
+                    >
+                      {todo.title}
+                    </button>
                     {/* 等待中：展示已等待天数与可选原因 */}
                     {todo.status === "waiting" ? (
                       <div className="todo-waiting-meta">
@@ -751,20 +609,17 @@ export default function App(): React.ReactElement {
                     {/* 已按标签筛选时不再重复展示标签 chips，避免拥挤 */}
                     {tagFilter ? null : <TodoTagChips tags={todo.tags} />}
                   </div>
-                  {editingId !== todo.id ? (
-                    <button
-                      className="icon-button danger-button todo-delete-button"
-                      type="button"
-                      aria-label={`删除 ${todo.title}`}
-                      onClick={() => {
-                        setContextMenu(null);
-                        setEditModal(null);
-                        setDeleteConfirm({ id: todo.id, title: todo.title });
-                      }}
-                    >
-                      <Trash2 aria-hidden className="button-icon" strokeWidth={2} />
-                    </button>
-                  ) : null}
+                  <button
+                    className="icon-button danger-button todo-delete-button"
+                    type="button"
+                    aria-label={`删除 ${todo.title}`}
+                    onClick={() => {
+                      setContextMenu(null);
+                      setDeleteConfirm({ id: todo.id, title: todo.title });
+                    }}
+                  >
+                    <Trash2 aria-hidden className="button-icon" strokeWidth={2} />
+                  </button>
                 </div>
                 <TodoSubtasks
                   subtasks={todo.subtasks}
@@ -821,56 +676,6 @@ export default function App(): React.ReactElement {
           </div>
           <span>{footerHint}</span>
         </footer>
-
-        {/* 长标题截断时的编辑弹窗；放在 card 内并 no-drag，避免拖拽区吞交互 */}
-        {editModal ? (
-          <div
-            className="todo-edit-modal-backdrop no-drag"
-            role="presentation"
-            onMouseDown={(event) => {
-              // 仅点遮罩关闭，点对话框本身不关
-              if (event.target === event.currentTarget) closeEditModal();
-            }}
-          >
-            <div className="todo-edit-modal" role="dialog" aria-modal="true" aria-label="编辑待办">
-              <header className="todo-edit-modal-header">
-                <h2>编辑待办</h2>
-                <button
-                  className="icon-button"
-                  type="button"
-                  title="关闭"
-                  aria-label="关闭"
-                  onClick={closeEditModal}
-                >
-                  <Icon name="quit" />
-                </button>
-              </header>
-              <textarea
-                ref={editModalTextareaRef}
-                className="todo-edit-modal-textarea"
-                value={editModal.title}
-                onChange={(event) => setEditModal({ ...editModal, title: event.target.value })}
-                onKeyDown={(event) => {
-                  // Ctrl/Cmd+Enter 保存；单独 Enter 允许换行草稿（标题本身会 trim）
-                  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-                    event.preventDefault();
-                    void saveEditModal();
-                  }
-                }}
-                aria-label="待办标题"
-                rows={4}
-              />
-              <div className="todo-edit-modal-actions">
-                <button type="button" className="todo-edit-modal-cancel" onClick={closeEditModal}>
-                  取消
-                </button>
-                <button type="button" className="todo-edit-modal-save" onClick={() => void saveEditModal()}>
-                  保存
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
 
         {/* 删除确认：与编辑弹窗同结构，危险操作用红色主按钮 */}
         {deleteConfirm ? (

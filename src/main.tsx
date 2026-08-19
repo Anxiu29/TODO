@@ -1,9 +1,10 @@
 /**
  * 渲染进程入口。
  *
- * 四个 Electron 窗口共用此 HTML/JS  bundle，通过 URL 查询参数 ?view= 路由到不同组件：
+ * 各窗口共用此 HTML/JS bundle，通过 URL 查询参数 ?view= 路由到不同组件：
  * - widget（默认）→ App 桌面挂件
  * - add → AddTodoWindow 快捷添加
+ * - edit → EditTodoWindow 独立编辑标题
  * - calendar → CalendarView 完成日历
  * - settings → SettingsWindow 偏好设置
  */
@@ -11,6 +12,7 @@ import React, { useEffect } from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import AddTodoWindow from "./AddTodoWindow";
+import EditTodoWindow from "./EditTodoWindow";
 import CalendarView from "./CalendarView";
 import SettingsWindow from "./SettingsWindow";
 import { applyAppearance } from "./theme";
@@ -35,6 +37,7 @@ const AppearanceSync = ({ children }: { children: React.ReactNode }): React.Reac
 
 const View = (): React.ReactElement => {
   if (view === "add") return <AddTodoWindow />;
+  if (view === "edit") return <EditTodoWindow />;
   if (view === "calendar") return <CalendarView />;
   if (view === "settings") return <SettingsWindow />;
   return <App />;

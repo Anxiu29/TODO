@@ -2,7 +2,7 @@
  * Electron 主进程入口。
  *
  * 职责概览：
- * - 管理四个 BrowserWindow：桌面挂件、快捷添加、完成日历、设置
+ * - 管理五个 BrowserWindow：桌面挂件、快捷添加、编辑待办、完成日历、设置
  * - 通过 TodoStore 读写 todos.json，经 IPC 与渲染进程通信
  * - 注册全局快捷键（快捷添加 / 显示挂件）与系统托盘
  * - 控制挂件显示模式：普通窗口、桌面固定（壁纸软件 / 系统壁纸，均为 WorkerW）或悬浮置顶
@@ -25,6 +25,7 @@ import { TodoStore } from "./todoStore";
 import { checkForUpdates, dismissUpdate, downloadUpdate, getAppVersionInfo, getUpdateStatus, quitAndInstallUpdate, setupAutoUpdater } from "./updater";
 import { normalizeTodoTags } from "../src/types/todo";
 import type {
+  EditTodoPayload,
   QuickAddFocusPayload,
   ShortcutRegistrationResult,
   TodoDraft,
@@ -40,6 +41,10 @@ let widgetWindow: BrowserWindow | null = null;
 let addTodoWindow: BrowserWindow | null = null;
 /** 最近一次打开添加窗时预填的标签（挂件筛选上下文）；快捷键唤起时清空 */
 let pendingAddTodoTags: string[] = [];
+/** 独立编辑待办窗口 */
+let editTodoWindow: BrowserWindow | null = null;
+/** 编辑窗当前/即将打开的待办 id */
+let pendingEditTodoId: string | null = null;
 /** 完成日历独立窗口 */
 let calendarWindow: BrowserWindow | null = null;
 /** 偏好设置独立窗口 */
@@ -111,17 +116,22 @@ const loadAppIcon = () => {
 };
 
 /**
- * 加载渲染页面。四个窗口共用同一 index.html，通过 ?view= 区分组件。
+ * 加载渲染页面。各窗口共用同一 index.html，通过 ?view= 区分组件。
  * 开发：http://localhost:xxx?view=widget；生产：file://.../index.html?view=widget
  */
-const loadRenderer = async (window: BrowserWindow, view: "widget" | "add" | "calendar" | "settings"): Promise<void> => {
+const loadRenderer = async (
+  window: BrowserWindow,
+  view: "widget" | "add" | "edit" | "calendar" | "settings",
+  query?: Record<string, string>
+): Promise<void> => {
   if (rendererUrl) {
-    await window.loadURL(`${rendererUrl}?view=${view}`);
+    const params = new URLSearchParams({ view, ...query });
+    await window.loadURL(`${rendererUrl}?${params.toString()}`);
     return;
   }
 
   await window.loadFile(join(__dirname, "../renderer/index.html"), {
-    query: { view }
+    query: { view, ...query }
   });
 };
 
@@ -691,7 +701,7 @@ const createAddTodoWindow = async (options?: { tags?: string[] }): Promise<void>
   }
 
   const display = screen.getPrimaryDisplay().workArea;
-  // 含星级、预计天数、可选标签提示与确认按钮
+  // 含星级、预计天数、可选标签提示与确认按钮；标题换行时再增高
   const windowHeight = 340;
   addTodoWindow = new BrowserWindow({
     width: 420,
@@ -744,6 +754,72 @@ const createAddTodoWindow = async (options?: { tags?: string[] }): Promise<void>
     addTodoWindow?.focus();
     sendQuickAddFocus();
   });
+};
+
+/** 向编辑窗推送要改的待办 id */
+const sendEditTodoOpen = (): void => {
+  if (!editTodoWindow || editTodoWindow.isDestroyed() || !pendingEditTodoId) return;
+  const payload: EditTodoPayload = { id: pendingEditTodoId };
+  editTodoWindow.webContents.send("edit-todo:open", payload);
+};
+
+/**
+ * 打开独立编辑窗。已存在则复用并切换待办，不贴在挂件上。
+ */
+const createEditTodoWindow = async (todoId: string): Promise<void> => {
+  pendingEditTodoId = todoId;
+
+  if (editTodoWindow) {
+    editTodoWindow.show();
+    editTodoWindow.focus();
+    sendEditTodoOpen();
+    return;
+  }
+
+  const display = screen.getPrimaryDisplay().workArea;
+  const windowHeight = 240;
+  editTodoWindow = new BrowserWindow({
+    width: 420,
+    height: windowHeight,
+    x: Math.round(display.x + display.width / 2 - 210),
+    y: Math.round(display.y + display.height / 2 - windowHeight / 2),
+    frame: false,
+    transparent: true,
+    backgroundColor: "#00000000",
+    resizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    hasShadow: false,
+    show: false,
+    title: "编辑待办",
+    icon: getAppIconPath(),
+    webPreferences: {
+      preload: join(__dirname, "../preload/preload.mjs"),
+      sandbox: false,
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+
+  editTodoWindow.on("closed", () => {
+    editTodoWindow = null;
+    pendingEditTodoId = null;
+  });
+
+  let revealed = false;
+  const revealOnce = (): void => {
+    if (revealed || !editTodoWindow) return;
+    revealed = true;
+    editTodoWindow.show();
+    editTodoWindow.focus();
+    sendEditTodoOpen();
+  };
+
+  editTodoWindow.once("ready-to-show", revealOnce);
+  editTodoWindow.webContents.once("did-finish-load", revealOnce);
+
+  await loadRenderer(editTodoWindow, "edit", { id: todoId });
+  setTimeout(revealOnce, 1000);
 };
 
 const createCalendarWindow = async (): Promise<void> => {
@@ -971,7 +1047,24 @@ const registerIpc = (): void => {
   );
   ipcMain.handle("windows:openCalendar", () => createCalendarWindow());
   ipcMain.handle("windows:openSettings", () => createSettingsWindow());
+  ipcMain.handle("windows:openEditTodo", (_event, todoId: string) => {
+    if (typeof todoId !== "string" || !todoId) return;
+    return createEditTodoWindow(todoId);
+  });
   ipcMain.handle("windows:closeCurrent", (event) => BrowserWindow.fromWebContents(event.sender)?.hide());
+  /** 添加/编辑窗标题换行后按卡片高度增高，避免多行被裁切 */
+  ipcMain.handle("windows:resizeAddTodo", (event, height: number) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || win.isDestroyed()) return;
+    if (win !== addTodoWindow && win !== editTodoWindow) return;
+    if (typeof height !== "number" || !Number.isFinite(height)) return;
+    const minHeight = win === editTodoWindow ? 220 : 340;
+    const display = screen.getDisplayMatching(win.getBounds());
+    const nextHeight = Math.min(Math.max(Math.round(height), minHeight), display.workArea.height);
+    const bounds = win.getBounds();
+    if (bounds.height === nextHeight) return;
+    win.setBounds({ ...bounds, height: nextHeight });
+  });
   ipcMain.handle("widget:wake", () => wakeWidgetForInteraction());
   ipcMain.handle("widget:getFloatOnPage", () => pinnedFloat);
   ipcMain.handle("widget:toggleFloatOnPage", async () => {

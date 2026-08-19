@@ -336,7 +336,12 @@ export default function CalendarView(): React.ReactElement {
                         autoFocus
                       />
                     ) : (
-                      <button type="button" className="todo-title-button" onClick={() => startEdit(todo)}>
+                      <button
+                        type="button"
+                        className="todo-title-button"
+                        title={todo.title}
+                        onClick={() => startEdit(todo)}
+                      >
                         {todo.title}
                       </button>
                     )}
@@ -359,7 +364,9 @@ export default function CalendarView(): React.ReactElement {
                           className={`detail-subtask${subtask.done ? " done" : ""}`}
                         >
                           <span className="detail-subtask-mark" aria-hidden />
-                          <span className="detail-subtask-title">{subtask.title}</span>
+                          <span className="detail-subtask-title" title={subtask.title}>
+                            {subtask.title}
+                          </span>
                           <span className="detail-subtask-days">
                             {formatStepDaysLabel(subtask, selectedDate)}
                           </span>
