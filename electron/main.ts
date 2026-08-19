@@ -697,13 +697,15 @@ const sendQuickAddFocus = (): void => {
 };
 
 /**
- * 创建或聚焦快捷添加窗口；失焦自动 hide，不销毁实例以便复用。
+ * 创建或聚焦快捷添加窗口；不销毁实例以便复用。
+ * 普通顶层窗，与日历一样不置顶、失焦不关；关闭仅由标题栏、Escape 或提交成功触发。
  * options.tags：挂件在某标签筛选下「添加」时传入，新建待办会自动带上。
  */
 const createAddTodoWindow = async (options?: { tags?: string[] }): Promise<void> => {
   pendingAddTodoTags = normalizeTodoTags(options?.tags);
 
   if (addTodoWindow) {
+    addTodoWindow.setAlwaysOnTop(false);
     addTodoWindow.show();
     addTodoWindow.focus();
     sendQuickAddFocus();
@@ -722,8 +724,6 @@ const createAddTodoWindow = async (options?: { tags?: string[] }): Promise<void>
     transparent: true,
     backgroundColor: "#00000000",
     resizable: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
     hasShadow: false,
     show: false,
     title: "添加代办",
@@ -736,25 +736,7 @@ const createAddTodoWindow = async (options?: { tags?: string[] }): Promise<void>
     }
   });
 
-  let hideOnBlurTimer: NodeJS.Timeout | undefined;
-
-  addTodoWindow.on("blur", () => {
-    clearTimeout(hideOnBlurTimer);
-    // 短暂延迟：避免 show/focus 竞态或挂件 wake 抢焦点导致刚打开就被关掉
-    hideOnBlurTimer = setTimeout(() => {
-      if (!addTodoWindow || addTodoWindow.isDestroyed() || addTodoWindow.isFocused()) {
-        return;
-      }
-      addTodoWindow.hide();
-    }, 250);
-  });
-
-  addTodoWindow.on("focus", () => {
-    clearTimeout(hideOnBlurTimer);
-  });
-
   addTodoWindow.on("closed", () => {
-    clearTimeout(hideOnBlurTimer);
     addTodoWindow = null;
   });
 

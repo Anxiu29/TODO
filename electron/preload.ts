@@ -76,7 +76,7 @@ const api = {
   openSettings: (): Promise<void> => ipcRenderer.invoke("windows:openSettings"),
   /** 打开独立编辑窗；不占用挂件内部空间 */
   openEditTodo: (todoId: string): Promise<void> => ipcRenderer.invoke("windows:openEditTodo", todoId),
-  /** 隐藏当前窗口（快捷添加窗口 blur 时也走此通道） */
+  /** 隐藏当前窗口（添加/编辑/日历/设置的关闭按钮与 Escape） */
   closeCurrentWindow: (): Promise<void> => ipcRenderer.invoke("windows:closeCurrent"),
   /** 添加/编辑窗标题换行后，按卡片高度调整窗口 */
   resizeAddTodoWindow: (height: number): Promise<void> => ipcRenderer.invoke("windows:resizeAddTodo", height),
