@@ -8,12 +8,13 @@
  * 数据通过 window.todoApi 与主进程同步，并订阅 IPC 推送保持多窗口一致。
  */
 import { Calendar, Minus, Pin, Settings, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import TodoContextMenu from "./TodoContextMenu";
 import TodoRating from "./TodoRating";
 import TodoSubtasks from "./TodoSubtasks";
 import { TodoTagChips } from "./TodoTags";
+import { DEFAULT_QUICK_ADD_SHORTCUT, DEFAULT_SHOW_WIDGET_SHORTCUT, formatShortcut } from "./data/shortcut";
 import { formatDate, formatWaitingDays } from "./todoFormat";
 import type { AppSettings, Todo, TodoSnapshot } from "./types/todo";
 
@@ -30,12 +31,6 @@ type TodoContextMenuPos = {
   x: number;
   y: number;
 };
-
-/** Electron 加速器格式 → 用户可读，如 CommandOrControl+Alt+T → Ctrl + Alt + T */
-const formatShortcut = (shortcut?: string): string =>
-  (shortcut ?? "CommandOrControl+2")
-    .replace("CommandOrControl", "Ctrl")
-    .replace(/\+/g, " + ");
 
 type IconName = "calendar" | "minimize" | "pin" | "quit" | "settings";
 
@@ -73,10 +68,10 @@ export default function App(): React.ReactElement {
   const tagFilterHydratedRef = useRef(false);
 
   /** 写入标签筛选并同步本地状态（重启/自启后由此恢复） */
-  const persistTagFilter = (next: string | null): void => {
+  const persistTagFilter = useCallback((next: string | null): void => {
     setTagFilter(next);
     void window.todoApi.setTagFilter(next).then(setSettings);
-  };
+  }, []);
 
   /** 展示撤回条，约 10 秒后自动收起 */
   const showDeleteUndo = (title: string): void => {
@@ -183,7 +178,7 @@ export default function App(): React.ReactElement {
     if (availableTags.length > 0 || snapshot.activeTodos.length > 0) {
       persistTagFilter(null);
     }
-  }, [availableTags, tagFilter, snapshot.today, snapshot.activeTodos.length]);
+  }, [availableTags, tagFilter, snapshot.today, snapshot.activeTodos.length, persistTagFilter]);
 
   const remainingLabel = useMemo(() => {
     if (snapshot.activeTodos.length === 0) return "今天没有待办";
@@ -195,7 +190,7 @@ export default function App(): React.ReactElement {
     settings?.displayMode === "desktop" || settings?.displayMode === "system"
       ? "取消置顶，回到桌面固定"
       : "取消置顶，回到普通窗口";
-  const showWidgetShortcutLabel = formatShortcut(settings?.showWidgetShortcut ?? "CommandOrControl+1");
+  const showWidgetShortcutLabel = formatShortcut(settings?.showWidgetShortcut ?? DEFAULT_SHOW_WIDGET_SHORTCUT);
   /** 按壁纸软件 / 系统壁纸两种桌面固定给出提示 */
   const footerHint = (() => {
     if (desktopAttached === false) {
@@ -212,7 +207,7 @@ export default function App(): React.ReactElement {
     if (settings?.displayMode === "system") {
       return `系统壁纸桌面固定；无法点击时用 ${showWidgetShortcutLabel} 唤出`;
     }
-    return `${formatShortcut(settings?.shortcut ?? "CommandOrControl+2")} 快捷添加，托盘图标可显示组件`;
+    return `${formatShortcut(settings?.shortcut ?? DEFAULT_QUICK_ADD_SHORTCUT)} 快捷添加，托盘图标可显示组件`;
   })();
 
   /** 点击标题：在独立窗口编辑，避免占挂件内部空间 */
@@ -337,7 +332,7 @@ export default function App(): React.ReactElement {
           {snapshot.activeTodos.length === 0 ? (
             <div className="empty-state">
               <strong>今天清空了</strong>
-              <span>全局快捷键 {formatShortcut(settings?.shortcut)} 可以随时添加。</span>
+              <span>全局快捷键 {formatShortcut(settings?.shortcut, DEFAULT_QUICK_ADD_SHORTCUT)} 可以随时添加。</span>
             </div>
           ) : visibleTodos.length === 0 ? (
             <div className="empty-state">

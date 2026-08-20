@@ -8,17 +8,11 @@ import { X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import { formatStepDaysLabel, todayKey as toDateKey } from "./data/todoStore";
+import { formatDate } from "./todoFormat";
 import type { Todo, TodoCalendarDay } from "./types/todo";
 
 /** 周一为首的中文星期标签 */
 const weekDays = ["一", "二", "三", "四", "五", "六", "日"];
-
-const formatSelectedDate = (dateKey: string): string =>
-  new Intl.DateTimeFormat("zh-CN", {
-    month: "long",
-    day: "numeric",
-    weekday: "long"
-  }).format(new Date(`${dateKey}T00:00:00`));
 
 /** 生成当月 1 日到月末的日期列表 */
 const getMonthDays = (current: Date): Date[] => {
@@ -302,7 +296,7 @@ export default function CalendarView(): React.ReactElement {
           <aside className="day-detail">
             <div className="day-detail-header">
               <h2>完成事项</h2>
-              <p className="day-detail-date">{formatSelectedDate(selectedDate)}</p>
+              <p className="day-detail-date">{formatDate(selectedDate)}</p>
             </div>
             {!selected || selected.completedTodos.length === 0 ? (
               <div className="empty-state">

@@ -8,45 +8,16 @@ import { X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import { PROJECT_RELEASE_URLS } from "./constants/projectLinks";
+import {
+  DEFAULT_QUICK_ADD_SHORTCUT,
+  DEFAULT_SHOW_WIDGET_SHORTCUT,
+  eventToShortcut,
+  formatShortcut
+} from "./data/shortcut";
 import type { AppSettings, WidgetDisplayMode, WidgetTheme } from "./types/todo";
 import { WIDGET_OPACITY_DEFAULT, WIDGET_OPACITY_MAX, WIDGET_OPACITY_MIN, WIDGET_THEME_DEFAULT } from "./types/todo";
 import type { AppVersionInfo, UpdateStatus } from "./types/update";
 import { parseReleaseNotes } from "./updateNotes";
-
-const formatShortcut = (shortcut?: string, fallback = "CommandOrControl+2"): string =>
-  (shortcut ?? fallback)
-    .replace("CommandOrControl", "Ctrl")
-    .replace(/\+/g, " + ");
-
-/**
- * 将 DOM KeyboardEvent 的 key/code 转为 Electron 加速器片段。
- * 需与 main.ts 中 normalizeShortcut 的期望格式一致。
- */
-const keyToAcceleratorPart = (key: string, code: string): string => {
-  if (key === " ") return "Space";
-  if (key === "Escape") return "Esc";
-  if (key.startsWith("Arrow")) return key.replace("Arrow", "");
-  if (/^F\d{1,2}$/.test(key)) return key;
-  if (/^[a-z]$/i.test(key)) return key.toUpperCase();
-  if (/^\d$/.test(key)) return key;
-  if (code.startsWith("Numpad") && code.length > "Numpad".length) return code.replace("Numpad", "num");
-  return key.length === 1 ? key.toUpperCase() : key;
-};
-
-/** 组合 Ctrl/Alt/Shift/Meta 与主键，生成如 CommandOrControl+Alt+T */
-const eventToShortcut = (event: React.KeyboardEvent<HTMLInputElement>): string => {
-  const parts: string[] = [];
-  if (event.ctrlKey || event.metaKey) parts.push("CommandOrControl");
-  if (event.altKey) parts.push("Alt");
-  if (event.shiftKey) parts.push("Shift");
-
-  // 忽略单独按下修饰键
-  if (!["Control", "Shift", "Alt", "Meta"].includes(event.key)) {
-    parts.push(keyToAcceleratorPart(event.key, event.code));
-  }
-
-  return parts.join("+");
-};
 
 const updateStatusMessage = (status: UpdateStatus, versionInfo: AppVersionInfo | null): string => {
   switch (status.state) {
@@ -102,9 +73,9 @@ export default function SettingsWindow(): React.ReactElement {
     });
   }, []);
 
-  const shortcutLabel = useMemo(() => formatShortcut(shortcutDraft || settings?.shortcut, "CommandOrControl+2"), [settings?.shortcut, shortcutDraft]);
+  const shortcutLabel = useMemo(() => formatShortcut(shortcutDraft || settings?.shortcut, DEFAULT_QUICK_ADD_SHORTCUT), [settings?.shortcut, shortcutDraft]);
   const showWidgetShortcutLabel = useMemo(
-    () => formatShortcut(showWidgetShortcutDraft || settings?.showWidgetShortcut, "CommandOrControl+1"),
+    () => formatShortcut(showWidgetShortcutDraft || settings?.showWidgetShortcut, DEFAULT_SHOW_WIDGET_SHORTCUT),
     [settings?.showWidgetShortcut, showWidgetShortcutDraft]
   );
 
