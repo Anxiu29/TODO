@@ -28,7 +28,7 @@ const api = {
   completeTodo: (id: string): Promise<TodoSnapshot> => ipcRenderer.invoke("todos:complete", id),
   reopenTodo: (id: string): Promise<TodoSnapshot> => ipcRenderer.invoke("todos:reopen", id),
   deleteTodo: (id: string): Promise<TodoSnapshot> => ipcRenderer.invoke("todos:delete", id),
-  /** 撤回最近一次待办删除（主进程内存缓存） */
+  /** 撤回最近一次待办删除（随 todos.json 的 lastDeletedTodo 落盘） */
   undoLastDelete: (): Promise<TodoSnapshot> => ipcRenderer.invoke("todos:undoLastDelete"),
   updateTodo: (id: string, update: TodoUpdate): Promise<TodoSnapshot> =>
     ipcRenderer.invoke("todos:update", id, update),

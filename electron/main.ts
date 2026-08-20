@@ -22,16 +22,16 @@ import {
   syncDesktopWindowBounds,
   type DesktopAttachStrategy
 } from "./desktop/attachToDesktop";
+import { registerTodoIpc } from "./ipcTodos";
 import { TodoStore } from "./todoStore";
 import { checkForUpdates, dismissUpdate, downloadUpdate, getAppVersionInfo, getUpdateStatus, quitAndInstallUpdate, setupAutoUpdater } from "./updater";
+import { FALLBACK_SHORTCUTS, normalizeShortcut } from "../src/data/shortcut";
 import { normalizeTodoTags } from "../src/types/todo";
 import type {
   EditTodoPayload,
   QuickAddFocusPayload,
   ShortcutRegistrationResult,
-  TodoDraft,
   TodoSnapshot,
-  TodoUpdate,
   WidgetDisplayMode,
   WidgetTheme,
   WindowBounds
@@ -119,8 +119,6 @@ const getDesktopAttachStrategy = (): DesktopAttachStrategy =>
 
 /** 开发模式下 Vite 热更新地址；生产环境为 undefined，走 loadFile */
 const rendererUrl = process.env.ELECTRON_RENDERER_URL;
-/** 首选快捷键注册失败时依次尝试的备选组合 */
-const fallbackShortcuts = ["CommandOrControl+2", "CommandOrControl+Alt+T", "CommandOrControl+Alt+N"];
 
 const loadAppIcon = () => {
   const icon = nativeImage.createFromPath(getAppIconPath());
@@ -145,30 +143,6 @@ const loadRenderer = async (
   await window.loadFile(join(__dirname, "../renderer/index.html"), {
     query: { view, ...query }
   });
-};
-
-/**
- * 将用户输入的快捷键字符串规范化为 Electron globalShortcut 格式。
- * 例："ctrl+alt+t" → "CommandOrControl+Alt+T"
- */
-const normalizeShortcut = (input: string): string => {
-  const parts = input
-    .trim()
-    .replace(/\s+/g, "")
-    .split("+")
-    .filter(Boolean);
-
-  const normalized = parts.map((part) => {
-    const lower = part.toLowerCase();
-    if (["ctrl", "control", "cmdorctrl", "commandorcontrol"].includes(lower)) return "CommandOrControl";
-    if (["cmd", "command"].includes(lower)) return "Command";
-    if (lower === "option") return "Alt";
-    if (lower === "escape") return "Esc";
-    if (lower === "spacebar") return "Space";
-    return part.length === 1 ? part.toUpperCase() : part[0].toUpperCase() + part.slice(1);
-  });
-
-  return normalized.join("+");
 };
 
 /** 待办数据变更后先做日切，再向所有已打开窗口推送最新快照，保持 UI 同步 */
@@ -949,71 +923,7 @@ const setWidgetDisplayMode = async (displayMode: WidgetDisplayMode): Promise<Ret
 
 /** 注册渲染进程 IPC：待办 CRUD、设置、窗口控制。 */
 const registerIpc = (): void => {
-  ipcMain.handle("todos:getSnapshot", () => store.refreshDaily());
-  ipcMain.handle("todos:add", (_event, draft: TodoDraft) => {
-    store.addTodo(draft);
-    return broadcastSnapshot();
-  });
-  ipcMain.handle("todos:complete", (_event, id: string) => {
-    store.completeTodo(id);
-    return broadcastSnapshot();
-  });
-  ipcMain.handle("todos:reopen", (_event, id: string) => {
-    store.reopenTodo(id);
-    return broadcastSnapshot();
-  });
-  ipcMain.handle("todos:delete", (_event, id: string) => {
-    store.deleteTodo(id);
-    return broadcastSnapshot();
-  });
-  ipcMain.handle("todos:undoLastDelete", () => {
-    store.undoLastDelete();
-    return broadcastSnapshot();
-  });
-  ipcMain.handle("todos:update", (_event, id: string, update: TodoUpdate) => {
-    store.updateTodo(id, update);
-    return broadcastSnapshot();
-  });
-  ipcMain.handle("todos:setRating", (_event, id: string, rating: number) => {
-    store.setTodoRating(id, rating);
-    return broadcastSnapshot();
-  });
-  ipcMain.handle("todos:setTags", (_event, id: string, tags: string[]) => {
-    store.setTodoTags(id, tags);
-    return broadcastSnapshot();
-  });
-  ipcMain.handle("todos:setDueDays", (_event, id: string, dueDays: number | null) => {
-    store.setTodoDueDays(id, dueDays);
-    return broadcastSnapshot();
-  });
-  ipcMain.handle("todos:setWaiting", (_event, id: string, options?: { reason?: string | null }) => {
-    store.setTodoWaiting(id, options);
-    return broadcastSnapshot();
-  });
-  ipcMain.handle("todos:resume", (_event, id: string) => {
-    store.resumeTodo(id);
-    return broadcastSnapshot();
-  });
-  ipcMain.handle("todos:addSubtask", (_event, id: string, title: string) => {
-    store.addTodoSubtask(id, title);
-    return broadcastSnapshot();
-  });
-  ipcMain.handle("todos:toggleSubtask", (_event, id: string, subtaskId: string) => {
-    store.toggleTodoSubtask(id, subtaskId);
-    return broadcastSnapshot();
-  });
-  ipcMain.handle("todos:updateSubtask", (_event, id: string, subtaskId: string, title: string) => {
-    store.updateTodoSubtask(id, subtaskId, title);
-    return broadcastSnapshot();
-  });
-  ipcMain.handle("todos:deleteSubtask", (_event, id: string, subtaskId: string) => {
-    store.deleteTodoSubtask(id, subtaskId);
-    return broadcastSnapshot();
-  });
-  ipcMain.handle("todos:getCalendar", (_event, year: number, month: number) => {
-    store.refreshDaily();
-    return store.getCalendar(year, month);
-  });
+  registerTodoIpc(store, broadcastSnapshot);
   ipcMain.handle("settings:get", () => {
     syncLoginSetting();
     return store.getSettings();
@@ -1135,14 +1045,14 @@ const runShortcutAction = (kind: ShortcutKind): void => {
 
 /**
  * 注册单个全局快捷键。
- * - 首选组合被占用时依次尝试 fallbackShortcuts
+ * - 首选组合被占用时依次尝试 FALLBACK_SHORTCUTS
  * - 全部失败则保留原设置并返回 registered: false
  */
 const registerShortcut = (kind: ShortcutKind, requestedShortcut?: string): ShortcutRegistrationResult => {
   const preferredShortcut = requestedShortcut ? normalizeShortcut(requestedShortcut) : getShortcutValue(kind);
   const shortcutCandidates = requestedShortcut
     ? [preferredShortcut]
-    : [preferredShortcut, ...fallbackShortcuts].filter((shortcut, index, shortcuts) => shortcuts.indexOf(shortcut) === index);
+    : [preferredShortcut, ...FALLBACK_SHORTCUTS].filter((shortcut, index, shortcuts) => shortcuts.indexOf(shortcut) === index);
 
   for (const shortcut of shortcutCandidates) {
     let registered = false;
