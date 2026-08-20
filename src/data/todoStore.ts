@@ -47,6 +47,25 @@ export const daysBetweenDateKeys = (from: string, to: string): number => {
   return Math.max(0, Math.floor((startTo.getTime() - startFrom.getTime()) / 86_400_000));
 };
 
+/**
+ * 创建时刻距「某日」已过几天。用快照的 today，不直接读本机时钟，
+ * 以便日切广播后与挂件标题、等待天数使用同一天。
+ */
+export const daysSinceCreatedOn = (iso: string, today: string): number => {
+  const created = new Date(iso);
+  if (Number.isNaN(created.getTime())) return 0;
+  return daysBetweenDateKeys(todayKey(created), today);
+};
+
+/**
+ * 距下一个本地 00:00:01 的毫秒数。
+ * 至少 1 秒，避免刚好落在午夜时 delay=0 造成定时器空转。
+ */
+export const msUntilNextLocalMidnight = (now = new Date()): number => {
+  const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 1);
+  return Math.max(1000, next.getTime() - now.getTime());
+};
+
 /** 步骤用时/已进行文案；today 为当前本地日 YYYY-MM-DD */
 export const formatStepDaysLabel = (subtask: TodoSubtask, today: string): string => {
   if (subtask.done) {
@@ -86,7 +105,8 @@ export const buildTodoSnapshot = (database: TodoDatabase, date = todayKey()): To
   return {
     today: date,
     activeTodos: sorted.filter((todo) => isOpenTodoStatus(todo.status) && todo.scheduledDate === date),
-    completedToday: sorted.filter((todo) => todo.status === "completed" && todo.completedAt?.startsWith(date))
+    completedToday: sorted.filter((todo) => todo.status === "completed" && todo.completedAt?.startsWith(date)),
+    ...(database.lastDeletedTodo?.title ? { pendingUndoTitle: database.lastDeletedTodo.title } : {})
   };
 };
 

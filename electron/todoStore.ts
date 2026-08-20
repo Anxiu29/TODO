@@ -7,10 +7,11 @@
  * 业务逻辑（排序、日切、日历聚合）复用 src/data/todoStore.ts 中的纯函数，
  * 便于单元测试与主/渲染进程共享。
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { app } from "electron";
+import { writeFileAtomicSync } from "./atomicWrite";
 import { buildTodoSnapshot, getCalendarForMonth, refreshDatabaseForDate, todayKey, updateTodoTitle } from "../src/data/todoStore";
 import {
   appendWaitHistory,
@@ -125,8 +126,6 @@ const archiveAndClearWaiting = (todo: Todo, endedAt = todayKey()): void => {
  */
 export class TodoStore {
   private database: TodoDatabase;
-  /** 最近一次硬删除的完整待办，仅内存，供撤回；不落盘 */
-  private lastDeletedTodo: Todo | null = null;
 
   constructor(private readonly filePath = join(app.getPath("userData"), "todos.json")) {
     this.database = this.load();
@@ -134,7 +133,7 @@ export class TodoStore {
     this.refreshDaily();
   }
 
-  /** 返回当前日期的 UI 快照（进行中 + 今日完成），不触发日切 */
+  /** 返回当前日期的 UI 快照。不在这里日切；调用方应先 refreshDaily / save。 */
   getSnapshot(): TodoSnapshot {
     return buildTodoSnapshot(this.database);
   }
@@ -234,12 +233,12 @@ export class TodoStore {
     return this.getSnapshot();
   }
 
-  /** 硬删除待办，并缓存副本供 undoLastDelete */
+  /** 硬删除待办，并把副本写入 lastDeletedTodo 供撤回（随 todos.json 落盘） */
   deleteTodo(id: string): TodoSnapshot {
     const removed = this.database.todos.find((todo) => todo.id === id);
     if (!removed) return this.getSnapshot();
 
-    this.lastDeletedTodo = structuredClone(removed);
+    this.database.lastDeletedTodo = structuredClone(removed);
     this.database.todos = this.database.todos.filter((todo) => todo.id !== id);
     this.save();
     return this.getSnapshot();
@@ -247,10 +246,10 @@ export class TodoStore {
 
   /** 撤回最近一次删除；无缓存或 id 已存在时原样返回 */
   undoLastDelete(): TodoSnapshot {
-    const restored = this.lastDeletedTodo;
+    const restored = this.database.lastDeletedTodo;
     if (!restored) return this.getSnapshot();
 
-    this.lastDeletedTodo = null;
+    delete this.database.lastDeletedTodo;
     if (this.database.todos.some((todo) => todo.id === restored.id)) {
       return this.getSnapshot();
     }
@@ -373,10 +372,8 @@ export class TodoStore {
    * 若日期未变则 no-op；有变更则写盘。
    */
   refreshDaily(date = todayKey()): TodoSnapshot {
-    const refreshed = refreshDatabaseForDate(this.database, date);
-    if (refreshed !== this.database) {
-      this.database = refreshed;
-      this.save();
+    if (this.rollToToday(date)) {
+      this.writeDatabase();
     }
 
     return this.getSnapshot();
@@ -446,9 +443,13 @@ export class TodoStore {
       const raw = readFileSync(this.filePath, "utf8");
       const parsed = JSON.parse(raw) as TodoDatabase;
       const defaults = createEmptyDatabase();
+      const { lastDeletedTodo: pendingRaw, ...parsedRest } = parsed;
+      const pending =
+        pendingRaw && typeof pendingRaw === "object" ? normalizeTodoRecord(pendingRaw) : undefined;
+
       return {
         ...defaults,
-        ...parsed,
+        ...parsedRest,
         settings: {
           ...defaults.settings,
           ...parsed.settings,
@@ -457,16 +458,35 @@ export class TodoStore {
           widgetOpacity: normalizeWidgetOpacity(parsed.settings?.widgetOpacity),
           tagFilter: normalizeTagFilter(parsed.settings?.tagFilter)
         },
-        todos: Array.isArray(parsed.todos) ? parsed.todos.map((todo) => normalizeTodoRecord(todo)) : []
+        todos: Array.isArray(parsed.todos) ? parsed.todos.map((todo) => normalizeTodoRecord(todo)) : [],
+        ...(pending?.id && pending.title ? { lastDeletedTodo: pending } : {})
       };
     } catch {
       return createEmptyDatabase();
     }
   }
 
-  /** 确保目录存在后以格式化 JSON 写入（2 空格缩进） */
+  /**
+   * 若 lastRefreshDate 不是指定日，则滚动未完成待办。
+   * 返回是否改写了内存中的 database（引用变化即表示需要落盘）。
+   */
+  private rollToToday(date = todayKey()): boolean {
+    const refreshed = refreshDatabaseForDate(this.database, date);
+    if (refreshed === this.database) {
+      return false;
+    }
+    this.database = refreshed;
+    return true;
+  }
+
+  /** 落盘前先日切，避免跨夜后第一次增删改按「今天」过滤时把昨天的未完成项筛掉 */
   private save(): void {
-    mkdirSync(dirname(this.filePath), { recursive: true });
-    writeFileSync(this.filePath, JSON.stringify(this.database, null, 2), "utf8");
+    this.rollToToday();
+    this.writeDatabase();
+  }
+
+  /** 将当前内存数据库原子写入 todos.json（2 空格缩进） */
+  private writeDatabase(): void {
+    writeFileAtomicSync(this.filePath, JSON.stringify(this.database, null, 2));
   }
 }

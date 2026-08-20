@@ -317,6 +317,8 @@ export type TodoSnapshot = {
   /** 今日未完成：含 active 与 waiting */
   activeTodos: Todo[];
   completedToday: Todo[];
+  /** 可撤回的最近一次删除标题；无则省略 */
+  pendingUndoTitle?: string;
 };
 
 /** 新建待办时的输入；rating 省略则用 TODO_RATING_DEFAULT */
@@ -395,4 +397,9 @@ export type TodoDatabase = {
   lastRefreshDate: string;
   todos: Todo[];
   settings: AppSettings;
+  /**
+   * 最近一次硬删除的完整待办（谁写：deleteTodo；谁读：undoLastDelete / 快照 pendingUndoTitle）。
+   * 不在 todos 数组里，避免出现在今日列表；下一删除覆盖。
+   */
+  lastDeletedTodo?: Todo;
 };
