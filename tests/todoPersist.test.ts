@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { writeFileAtomicSync } from "../electron/atomicWrite";
 import { createEmptyDatabase, TodoStore } from "../electron/todoStore";
 import { todayKey } from "../src/data/todoStore";
-import type { TodoDatabase } from "../src/types/todo";
+import type { TodoDatabase, TodoDraft } from "../src/types/todo";
 
 const tempDirs: string[] = [];
 
@@ -106,5 +106,26 @@ describe("TodoStore persistence", () => {
     reloaded.undoLastDelete();
     expect(reloaded.getSnapshot().activeTodos.map((todo) => todo.title)).toEqual(["可撤回"]);
     expect(reloaded.getSnapshot().pendingUndoTitle).toBeUndefined();
+  });
+
+  it("copies unreadable todos.json aside instead of silently losing it", () => {
+    const dir = createTempDir();
+    const filePath = join(dir, "todos.json");
+    writeFileSync(filePath, "{ not json", "utf8");
+
+    const store = new TodoStore(filePath);
+    expect(store.getSnapshot().activeTodos).toEqual([]);
+
+    const backups = readdirSync(dir).filter((name) => name.startsWith("todos.json.corrupt-"));
+    expect(backups).toHaveLength(1);
+    expect(readFileSync(join(dir, backups[0] as string), "utf8")).toBe("{ not json");
+    expect(readFileSync(filePath, "utf8")).toBe("{ not json");
+  });
+
+  it("does not throw when addTodo receives a malformed draft", () => {
+    const filePath = join(createTempDir(), "todos.json");
+    const store = new TodoStore(filePath);
+    expect(() => store.addTodo({} as TodoDraft)).not.toThrow();
+    expect(store.getSnapshot().activeTodos).toHaveLength(0);
   });
 });

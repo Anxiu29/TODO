@@ -7,8 +7,8 @@
  * 业务逻辑（排序、日切、日历聚合）复用 src/data/todoStore.ts 中的纯函数，
  * 便于单元测试与主/渲染进程共享。
  */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { copyFileSync, existsSync, readFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { app } from "electron";
 import { writeFileAtomicSync } from "./atomicWrite";
@@ -42,6 +42,28 @@ import type {
 } from "../src/types/todo";
 
 const nowIso = (): string => new Date().toISOString();
+
+/** 备份文件名用的本地时间戳，避免冒号等非法路径字符 */
+const formatCorruptStamp = (date = new Date()): string => {
+  const pad = (n: number): string => String(n).padStart(2, "0");
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+};
+
+/**
+ * 读盘失败时把坏文件拷到旁路，避免下次 save 用空库盖掉且无从找回。
+ * 文件不存在或拷贝失败返回 null。
+ */
+export const backupUnreadableTodosFile = (filePath: string): string | null => {
+  if (!existsSync(filePath)) return null;
+  const backupPath = join(dirname(filePath), `${basename(filePath)}.corrupt-${formatCorruptStamp()}`);
+  const uniquePath = existsSync(backupPath) ? `${backupPath}-${process.pid}` : backupPath;
+  try {
+    copyFileSync(filePath, uniquePath);
+    return uniquePath;
+  } catch {
+    return null;
+  }
+};
 
 /** 创建空数据库，用于首次启动或 JSON 损坏/缺失时的回退 */
 export const createEmptyDatabase = (date = todayKey()): TodoDatabase => ({
@@ -140,6 +162,10 @@ export class TodoStore {
 
   /** 添加待办；标题 trim 后为空则忽略；rating 默认五星，scheduledDate=今天；tags/dueDays 经 normalize */
   addTodo(draft: TodoDraft): TodoSnapshot {
+    // IPC 可能传入非对象/缺 title，trim 会抛错
+    if (!draft || typeof draft.title !== "string") {
+      return this.getSnapshot();
+    }
     const title = draft.title.trim();
     if (!title) {
       return this.getSnapshot();
@@ -260,6 +286,9 @@ export class TodoStore {
   }
 
   updateTodo(id: string, update: TodoUpdate): TodoSnapshot {
+    if (typeof id !== "string" || !id || !update || typeof update.title !== "string") {
+      return this.getSnapshot();
+    }
     const next = updateTodoTitle(this.database, id, update.title);
     if (next !== this.database) {
       this.database = next;
@@ -307,6 +336,9 @@ export class TodoStore {
 
   /** 追加一条步骤；空标题或已满 20 条则忽略；写入 createdAt=今天 */
   addTodoSubtask(id: string, title: string): TodoSnapshot {
+    if (typeof title !== "string") {
+      return this.getSnapshot();
+    }
     const todo = this.database.todos.find((item) => item.id === id);
     const trimmed = title.trim();
     if (!todo || !trimmed || todo.subtasks.length >= 20) {
@@ -343,6 +375,9 @@ export class TodoStore {
 
   /** 重命名子任务；空标题忽略 */
   updateTodoSubtask(id: string, subtaskId: string, title: string): TodoSnapshot {
+    if (typeof title !== "string") {
+      return this.getSnapshot();
+    }
     const todo = this.database.todos.find((item) => item.id === id);
     const subtask = todo?.subtasks.find((item) => item.id === subtaskId);
     const trimmed = title.trim();
@@ -441,9 +476,13 @@ export class TodoStore {
   private load(): TodoDatabase {
     try {
       const raw = readFileSync(this.filePath, "utf8");
-      const parsed = JSON.parse(raw) as TodoDatabase;
+      const parsed: unknown = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("todos.json 不是对象");
+      }
+      const database = parsed as TodoDatabase;
       const defaults = createEmptyDatabase();
-      const { lastDeletedTodo: pendingRaw, ...parsedRest } = parsed;
+      const { lastDeletedTodo: pendingRaw, ...parsedRest } = database;
       const pending =
         pendingRaw && typeof pendingRaw === "object" ? normalizeTodoRecord(pendingRaw) : undefined;
 
@@ -452,16 +491,23 @@ export class TodoStore {
         ...parsedRest,
         settings: {
           ...defaults.settings,
-          ...parsed.settings,
-          displayMode: normalizeDisplayMode(parsed.settings?.displayMode),
-          theme: normalizeWidgetTheme(parsed.settings?.theme),
-          widgetOpacity: normalizeWidgetOpacity(parsed.settings?.widgetOpacity),
-          tagFilter: normalizeTagFilter(parsed.settings?.tagFilter)
+          ...database.settings,
+          displayMode: normalizeDisplayMode(database.settings?.displayMode),
+          theme: normalizeWidgetTheme(database.settings?.theme),
+          widgetOpacity: normalizeWidgetOpacity(database.settings?.widgetOpacity),
+          tagFilter: normalizeTagFilter(database.settings?.tagFilter)
         },
-        todos: Array.isArray(parsed.todos) ? parsed.todos.map((todo) => normalizeTodoRecord(todo)) : [],
+        todos: Array.isArray(database.todos) ? database.todos.map((todo) => normalizeTodoRecord(todo)) : [],
         ...(pending?.id && pending.title ? { lastDeletedTodo: pending } : {})
       };
     } catch {
+      // 文件还在只是读不懂：先备份再回退空库；构造阶段日切不会写盘（lastRefreshDate=今天）
+      if (existsSync(this.filePath)) {
+        const backupPath = backupUnreadableTodosFile(this.filePath);
+        if (backupPath) {
+          console.warn(`todos.json 无法解析，已备份到 ${backupPath}`);
+        }
+      }
       return createEmptyDatabase();
     }
   }
