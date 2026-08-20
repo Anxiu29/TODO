@@ -7,18 +7,11 @@
 import { X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
-import { formatStepDaysLabel } from "./data/todoStore";
+import { formatStepDaysLabel, todayKey as toDateKey } from "./data/todoStore";
 import type { Todo, TodoCalendarDay } from "./types/todo";
 
 /** 周一为首的中文星期标签 */
 const weekDays = ["一", "二", "三", "四", "五", "六", "日"];
-
-const toDateKey = (date: Date): string => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
 
 const formatSelectedDate = (dateKey: string): string =>
   new Intl.DateTimeFormat("zh-CN", {
@@ -142,7 +135,9 @@ function WheelSelect({ value, options, onChange, ariaLabel }: WheelSelectProps):
 export default function CalendarView(): React.ReactElement {
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [days, setDays] = useState<TodoCalendarDay[]>([]);
-  const [selectedDate, setSelectedDate] = useState(() => toDateKey(new Date()));
+  const [selectedDate, setSelectedDate] = useState(() => toDateKey());
+  /** 与主进程日切后的 snapshot.today 对齐，避免开着日历跨夜时「今天」高亮仍停在昨天 */
+  const [today, setToday] = useState(() => toDateKey());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const skipBlurSaveRef = useRef(false);
@@ -155,10 +150,12 @@ export default function CalendarView(): React.ReactElement {
     setDays(next);
   };
 
-  /** 切换月份或待办变更时重新拉取当月完成数据 */
+  /** 切换月份或待办/日切变更时重新拉取当月完成数据，并同步「今天」 */
   useEffect(() => {
+    void window.todoApi.getSnapshot().then((snapshot) => setToday(snapshot.today));
     void loadCalendar();
-    const off = window.todoApi.onTodosChanged(() => {
+    const off = window.todoApi.onTodosChanged((snapshot) => {
+      setToday(snapshot.today);
       void loadCalendar();
     });
     return off;
@@ -169,12 +166,11 @@ export default function CalendarView(): React.ReactElement {
   const firstWeekday = useMemo(() => getFirstWeekday(currentMonth), [currentMonth]);
   const weekCount = useMemo(() => Math.ceil((monthDays.length + firstWeekday) / 7), [monthDays.length, firstWeekday]);
   const selected = dayMap.get(selectedDate);
-  const todayKey = toDateKey(new Date());
 
   const yearOptions = useMemo(() => {
-    const anchor = new Date().getFullYear();
+    const anchor = Number(today.slice(0, 4)) || new Date().getFullYear();
     return Array.from({ length: 20 }, (_, index) => anchor - 10 + index);
-  }, []);
+  }, [today]);
 
   const syncSelectedDate = (nextYear: number, nextMonth: number): void => {
     const selected = new Date(`${selectedDate}T00:00:00`);
@@ -182,9 +178,9 @@ export default function CalendarView(): React.ReactElement {
       return;
     }
 
-    const now = new Date();
-    if (now.getFullYear() === nextYear && now.getMonth() + 1 === nextMonth) {
-      setSelectedDate(toDateKey(now));
+    const [y, m] = today.split("-").map(Number);
+    if (y === nextYear && m === nextMonth) {
+      setSelectedDate(today);
       return;
     }
 
@@ -202,9 +198,10 @@ export default function CalendarView(): React.ReactElement {
   };
 
   const goToToday = (): void => {
-    const now = new Date();
-    setCurrentMonth(new Date(now.getFullYear(), now.getMonth(), 1));
-    setSelectedDate(toDateKey(now));
+    const [y, m] = today.split("-").map(Number);
+    if (!y || !m) return;
+    setCurrentMonth(new Date(y, m - 1, 1));
+    setSelectedDate(today);
   };
 
   const startEdit = (todo: Todo): void => {
@@ -284,7 +281,7 @@ export default function CalendarView(): React.ReactElement {
               const dateKey = toDateKey(date);
               const data = dayMap.get(dateKey);
               const isSelected = selectedDate === dateKey;
-              const isToday = dateKey === todayKey;
+              const isToday = dateKey === today;
               const hasData = Boolean(data?.completedCount);
 
               return (

@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildTodoSnapshot,
   daysBetweenDateKeys,
+  daysSinceCreatedOn,
   formatStepDaysLabel,
   getCalendarForMonth,
+  msUntilNextLocalMidnight,
   refreshDatabaseForDate,
   updateTodoTitle
 } from "../src/data/todoStore";
@@ -301,6 +303,24 @@ describe("todo waiting status", () => {
     expect(daysBetweenDateKeys("2026-07-01", "2026-07-02")).toBe(1);
     expect(daysBetweenDateKeys("2026-06-28", "2026-07-01")).toBe(3);
     expect(daysBetweenDateKeys("bad", "2026-07-01")).toBe(0);
+  });
+
+  it("counts created-at days against the snapshot today, not the local clock", () => {
+    const createdToday = new Date(2026, 6, 1, 8, 0, 0).toISOString();
+    const createdThreeDaysAgo = new Date(2026, 5, 28, 8, 0, 0).toISOString();
+    expect(daysSinceCreatedOn(createdToday, "2026-07-01")).toBe(0);
+    expect(daysSinceCreatedOn(createdThreeDaysAgo, "2026-07-01")).toBe(3);
+    expect(daysSinceCreatedOn("not-a-date", "2026-07-01")).toBe(0);
+  });
+
+  it("schedules the next local midnight at least one second ahead", () => {
+    const justBefore = new Date(2026, 7, 20, 23, 59, 0);
+    const delay = msUntilNextLocalMidnight(justBefore);
+    expect(delay).toBeGreaterThanOrEqual(1000);
+    expect(delay).toBeLessThanOrEqual(62_000);
+
+    const noon = new Date(2026, 7, 20, 12, 0, 0);
+    expect(msUntilNextLocalMidnight(noon)).toBeGreaterThan(12 * 60 * 60 * 1000);
   });
 });
 

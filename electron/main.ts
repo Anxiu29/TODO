@@ -13,6 +13,7 @@ import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen,
 import { join } from "node:path";
 import { ALLOWED_EXTERNAL_URLS } from "../src/constants/projectLinks";
 import { configureUserDataPath, getAppIconPath, getLoginExecutablePath } from "./appPaths";
+import { createDailyRefreshWatch } from "./dailyRefreshWatch";
 import {
   attachWindowToDesktop,
   detachWindowFromDesktop,
@@ -29,6 +30,7 @@ import type {
   QuickAddFocusPayload,
   ShortcutRegistrationResult,
   TodoDraft,
+  TodoSnapshot,
   TodoUpdate,
   WidgetDisplayMode,
   WidgetTheme,
@@ -169,13 +171,19 @@ const normalizeShortcut = (input: string): string => {
   return normalized.join("+");
 };
 
-/** 待办数据变更后，向所有已打开窗口推送最新快照，保持 UI 同步 */
-const broadcastSnapshot = (): void => {
-  const snapshot = store.getSnapshot();
+/** 待办数据变更后先做日切，再向所有已打开窗口推送最新快照，保持 UI 同步 */
+const broadcastSnapshot = (): TodoSnapshot => {
+  const snapshot = store.refreshDaily();
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send("todos:changed", snapshot);
   }
+  return snapshot;
 };
+
+/** 常驻日切巡检（午夜 / 轮询 / 唤醒）；boot 时 start */
+const dailyRefreshWatch = createDailyRefreshWatch(() => {
+  broadcastSnapshot();
+});
 
 /** 设置变更后广播给所有窗口（快捷键、开机启动等） */
 const broadcastSettings = (): void => {
@@ -943,81 +951,69 @@ const setWidgetDisplayMode = async (displayMode: WidgetDisplayMode): Promise<Ret
 const registerIpc = (): void => {
   ipcMain.handle("todos:getSnapshot", () => store.refreshDaily());
   ipcMain.handle("todos:add", (_event, draft: TodoDraft) => {
-    const snapshot = store.addTodo(draft);
-    broadcastSnapshot();
-    return snapshot;
+    store.addTodo(draft);
+    return broadcastSnapshot();
   });
   ipcMain.handle("todos:complete", (_event, id: string) => {
-    const snapshot = store.completeTodo(id);
-    broadcastSnapshot();
-    return snapshot;
+    store.completeTodo(id);
+    return broadcastSnapshot();
   });
   ipcMain.handle("todos:reopen", (_event, id: string) => {
-    const snapshot = store.reopenTodo(id);
-    broadcastSnapshot();
-    return snapshot;
+    store.reopenTodo(id);
+    return broadcastSnapshot();
   });
   ipcMain.handle("todos:delete", (_event, id: string) => {
-    const snapshot = store.deleteTodo(id);
-    broadcastSnapshot();
-    return snapshot;
+    store.deleteTodo(id);
+    return broadcastSnapshot();
   });
   ipcMain.handle("todos:undoLastDelete", () => {
-    const snapshot = store.undoLastDelete();
-    broadcastSnapshot();
-    return snapshot;
+    store.undoLastDelete();
+    return broadcastSnapshot();
   });
   ipcMain.handle("todos:update", (_event, id: string, update: TodoUpdate) => {
-    const snapshot = store.updateTodo(id, update);
-    broadcastSnapshot();
-    return snapshot;
+    store.updateTodo(id, update);
+    return broadcastSnapshot();
   });
   ipcMain.handle("todos:setRating", (_event, id: string, rating: number) => {
-    const snapshot = store.setTodoRating(id, rating);
-    broadcastSnapshot();
-    return snapshot;
+    store.setTodoRating(id, rating);
+    return broadcastSnapshot();
   });
   ipcMain.handle("todos:setTags", (_event, id: string, tags: string[]) => {
-    const snapshot = store.setTodoTags(id, tags);
-    broadcastSnapshot();
-    return snapshot;
+    store.setTodoTags(id, tags);
+    return broadcastSnapshot();
   });
   ipcMain.handle("todos:setDueDays", (_event, id: string, dueDays: number | null) => {
-    const snapshot = store.setTodoDueDays(id, dueDays);
-    broadcastSnapshot();
-    return snapshot;
+    store.setTodoDueDays(id, dueDays);
+    return broadcastSnapshot();
   });
   ipcMain.handle("todos:setWaiting", (_event, id: string, options?: { reason?: string | null }) => {
-    const snapshot = store.setTodoWaiting(id, options);
-    broadcastSnapshot();
-    return snapshot;
+    store.setTodoWaiting(id, options);
+    return broadcastSnapshot();
   });
   ipcMain.handle("todos:resume", (_event, id: string) => {
-    const snapshot = store.resumeTodo(id);
-    broadcastSnapshot();
-    return snapshot;
+    store.resumeTodo(id);
+    return broadcastSnapshot();
   });
   ipcMain.handle("todos:addSubtask", (_event, id: string, title: string) => {
-    const snapshot = store.addTodoSubtask(id, title);
-    broadcastSnapshot();
-    return snapshot;
+    store.addTodoSubtask(id, title);
+    return broadcastSnapshot();
   });
   ipcMain.handle("todos:toggleSubtask", (_event, id: string, subtaskId: string) => {
-    const snapshot = store.toggleTodoSubtask(id, subtaskId);
-    broadcastSnapshot();
-    return snapshot;
+    store.toggleTodoSubtask(id, subtaskId);
+    return broadcastSnapshot();
   });
   ipcMain.handle("todos:updateSubtask", (_event, id: string, subtaskId: string, title: string) => {
-    const snapshot = store.updateTodoSubtask(id, subtaskId, title);
-    broadcastSnapshot();
-    return snapshot;
+    store.updateTodoSubtask(id, subtaskId, title);
+    return broadcastSnapshot();
   });
   ipcMain.handle("todos:deleteSubtask", (_event, id: string, subtaskId: string) => {
-    const snapshot = store.deleteTodoSubtask(id, subtaskId);
-    broadcastSnapshot();
-    return snapshot;
+    store.deleteTodoSubtask(id, subtaskId);
+    return broadcastSnapshot();
   });
-  ipcMain.handle("todos:getCalendar", (_event, year: number, month: number) => store.getCalendar(year, month));
+  ipcMain.handle("todos:getCalendar", (_event, year: number, month: number) => {
+    store.refreshDaily();
+    return store.getCalendar(year, month);
+  });
   ipcMain.handle("settings:get", () => {
     syncLoginSetting();
     return store.getSettings();
@@ -1235,7 +1231,7 @@ const boot = async (): Promise<void> => {
   store = new TodoStore();
   pinnedFloat = false;
   syncLoginSetting();
-  store.refreshDaily();
+  dailyRefreshWatch.start(store.refreshDaily().today);
   registerIpc();
   await createWidgetWindow();
   registerGlobalShortcuts();
@@ -1273,6 +1269,7 @@ app.on("will-quit", () => {
   clearTimeout(desktopAttachTimer);
   clearTimeout(dragAttachFallbackTimer);
   clearTimeout(resizeReattachTimer);
+  dailyRefreshWatch.stop();
   stopDesktopInputWatch();
   globalShortcut.unregisterAll();
 });
