@@ -4,7 +4,7 @@
 
 **主推便携版**（单文件、数据跟 exe 走）；安装版仅作备选。
 
-当前版本：`0.2.27`
+当前版本：`0.2.28`
 
 **下载：** [GitHub Releases](https://github.com/Anxiu29/TODO/releases/latest) · [Gitee Releases](https://gitee.com/anxiu29/TODO/releases/latest)
 
