@@ -5,6 +5,7 @@ import { app, BrowserWindow } from "electron";
 import electronUpdater from "electron-updater";
 import type { UpdateDownloadedEvent, UpdateInfo } from "electron-updater";
 import type { AppVersionInfo, UpdateStatus } from "../src/types/update";
+import { htmlToPlainText } from "../src/updateNotes";
 
 const { autoUpdater } = electronUpdater;
 
@@ -38,38 +39,6 @@ const broadcastStatus = (status: UpdateStatus): void => {
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send("update:status", status);
   }
-};
-
-/** 解码常见 HTML 实体，避免剥标签后仍残留 &amp; 等 */
-const decodeHtmlEntities = (text: string): string =>
-  text
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex: string) => String.fromCodePoint(Number.parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, dec: string) => String.fromCodePoint(Number.parseInt(dec, 10)))
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&apos;/g, "'");
-
-/**
- * GitHub Release 经 electron-updater 常为 HTML；设置页按纯文本展示，需剥标签并保留换行结构。
- */
-const htmlToPlainText = (html: string): string => {
-  const withBreaks = html
-    .replace(/<\s*br\s*\/?>/gi, "\n")
-    .replace(/<\s*\/\s*(p|div|h[1-6]|tr|table|section|blockquote)\s*>/gi, "\n")
-    .replace(/<\s*li[^>]*>/gi, "• ")
-    .replace(/<\s*\/\s*li\s*>/gi, "\n")
-    .replace(/<\s*\/\s*(ul|ol)\s*>/gi, "\n")
-    .replace(/<[^>]+>/g, "");
-
-  return decodeHtmlEntities(withBreaks)
-    .replace(/\u00a0/g, " ")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
 };
 
 /** 将 electron-updater 的 releaseNotes 规范为纯文本（剥掉 HTML） */
