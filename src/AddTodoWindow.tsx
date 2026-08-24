@@ -8,10 +8,13 @@
  * 若从某标签筛选下打开则自动带上该标签；
  * 标题一行放不下时自动换行，窗口随内容增高。
  */
-import { Star, X } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Star } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import type React from "react";
+import { CloseWindowButton } from "./CloseWindowButton";
 import { TodoTagChips } from "./TodoTags";
+import { useCardWindowHeight } from "./useCardWindowHeight";
+import { useEscapeToClose } from "./useEscapeToClose";
 import {
   DUE_DAYS_MAX,
   DUE_DAYS_MIN,
@@ -31,33 +34,8 @@ export default function AddTodoWindow(): React.ReactElement {
   const [dueDaysDraft, setDueDaysDraft] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const cardRef = useRef<HTMLFormElement>(null);
-
-  /** 标题区随内容增高；量高度时关掉滚动，避免空内容也挤出滚轮 */
-  const syncTitleFieldHeight = (): void => {
-    const el = inputRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  };
-
-  useLayoutEffect(() => {
-    syncTitleFieldHeight();
-  }, [title]);
-
-  useEffect(() => {
-    const card = cardRef.current;
-    if (!card) return;
-
-    const syncWindowHeight = (): void => {
-      const height = Math.ceil(card.scrollHeight);
-      void window.todoApi.resizeAddTodoWindow(height);
-    };
-
-    syncWindowHeight();
-    const observer = new ResizeObserver(syncWindowHeight);
-    observer.observe(card);
-    return () => observer.disconnect();
-  }, []);
+  useCardWindowHeight(title, inputRef, cardRef);
+  useEscapeToClose();
 
   useEffect(() => {
     /** 每次唤起：同步预填标签、恢复默认星级/天数，并延迟聚焦输入框 */
@@ -73,16 +51,8 @@ export default function AddTodoWindow(): React.ReactElement {
 
     focusInput();
 
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") {
-        void window.todoApi.closeCurrentWindow();
-      }
-    };
-
-    window.addEventListener("keydown", onKeyDown);
     const offFocus = window.todoApi.onQuickAddFocus(focusInput);
     return () => {
-      window.removeEventListener("keydown", onKeyDown);
       offFocus();
     };
   }, []);
@@ -119,15 +89,7 @@ export default function AddTodoWindow(): React.ReactElement {
             <p className="eyebrow">添加待办</p>
             <h1>新的待办事项</h1>
           </div>
-          <button
-            className="icon-button danger-button no-drag"
-            type="button"
-            title="关闭"
-            aria-label="关闭"
-            onClick={() => window.todoApi.closeCurrentWindow()}
-          >
-            <X aria-hidden className="button-icon" strokeWidth={2} />
-          </button>
+          <CloseWindowButton />
         </header>
         {/* 从某个标签筛选进入时提示将自动带上该标签 */}
         {tags.length > 0 ? (

@@ -4,9 +4,9 @@
  * 支持：开机自启、显示模式、主题/透明度、录制全局快捷键、应用内更新、手动下载链接。
  * 快捷键通过 input onKeyDown 捕获键盘事件，转换为 Electron Accelerator 格式后 IPC 注册。
  */
-import { X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
+import { CloseWindowButton } from "./CloseWindowButton";
 import { PROJECT_RELEASE_URLS } from "./constants/projectLinks";
 import {
   DEFAULT_QUICK_ADD_SHORTCUT,
@@ -18,6 +18,7 @@ import type { AppSettings, WidgetDisplayMode, WidgetTheme } from "./types/todo";
 import { WIDGET_OPACITY_DEFAULT, WIDGET_OPACITY_MAX, WIDGET_OPACITY_MIN, WIDGET_THEME_DEFAULT } from "./types/todo";
 import type { AppVersionInfo, UpdateStatus } from "./types/update";
 import { parseReleaseNotes } from "./updateNotes";
+import { useEscapeToClose } from "./useEscapeToClose";
 
 const updateStatusMessage = (status: UpdateStatus, versionInfo: AppVersionInfo | null): string => {
   switch (status.state) {
@@ -41,6 +42,7 @@ const updateStatusMessage = (status: UpdateStatus, versionInfo: AppVersionInfo |
 };
 
 export default function SettingsWindow(): React.ReactElement {
+  useEscapeToClose();
   const [settings, setSettings] = useState<AppSettings | null>(null);
   /** 拖动时用本地值，避免 IPC 回写把滑块拽离 0 */
   const [opacityDraft, setOpacityDraft] = useState<number | null>(null);
@@ -176,15 +178,7 @@ export default function SettingsWindow(): React.ReactElement {
             <h1>偏好设置</h1>
           </div>
           <div className="header-actions no-drag">
-            <button
-              className="icon-button danger-button"
-              type="button"
-              title="关闭"
-              aria-label="关闭"
-              onClick={() => window.todoApi.closeCurrentWindow()}
-            >
-              <X aria-hidden className="button-icon" strokeWidth={2} />
-            </button>
+            <CloseWindowButton />
           </div>
         </header>
 

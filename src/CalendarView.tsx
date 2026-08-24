@@ -4,30 +4,17 @@
  * 左侧月历格显示每日完成数量，右侧展示选中日期的完成列表（含父任务下的步骤明细与用时）。
  * 支持编辑标题、恢复为进行中；待办变更时通过 onTodosChanged 自动刷新。
  */
-import { X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
+import { CloseWindowButton } from "./CloseWindowButton";
+import { getCalendarWeekCount, getLocalMonthDays, getMondayFirstWeekday } from "./data/calendar";
 import { formatStepDaysLabel, todayKey as toDateKey } from "./data/todoStore";
 import { formatDate } from "./todoFormat";
 import type { Todo, TodoCalendarDay } from "./types/todo";
+import { useEscapeToClose } from "./useEscapeToClose";
 
 /** 周一为首的中文星期标签 */
 const weekDays = ["一", "二", "三", "四", "五", "六", "日"];
-
-/** 生成当月 1 日到月末的日期列表 */
-const getMonthDays = (current: Date): Date[] => {
-  const year = current.getFullYear();
-  const month = current.getMonth();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-  return Array.from({ length: daysInMonth }, (_, index) => new Date(year, month, index + 1));
-};
-
-/** 当月 1 日是星期几（周一 = 0） */
-const getFirstWeekday = (current: Date): number => {
-  const first = new Date(current.getFullYear(), current.getMonth(), 1);
-  return (first.getDay() + 6) % 7;
-};
 
 const VISIBLE_OPTION_COUNT = 5;
 const MONTH_OPTIONS = Array.from({ length: 12 }, (_, index) => index + 1);
@@ -127,6 +114,7 @@ function WheelSelect({ value, options, onChange, ariaLabel }: WheelSelectProps):
 }
 
 export default function CalendarView(): React.ReactElement {
+  useEscapeToClose({ ignoreEditable: true });
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [days, setDays] = useState<TodoCalendarDay[]>([]);
   const [selectedDate, setSelectedDate] = useState(() => toDateKey());
@@ -156,9 +144,9 @@ export default function CalendarView(): React.ReactElement {
   }, [year, month]);
 
   const dayMap = useMemo(() => new Map(days.map((day) => [day.date, day])), [days]);
-  const monthDays = useMemo(() => getMonthDays(currentMonth), [currentMonth]);
-  const firstWeekday = useMemo(() => getFirstWeekday(currentMonth), [currentMonth]);
-  const weekCount = useMemo(() => Math.ceil((monthDays.length + firstWeekday) / 7), [monthDays.length, firstWeekday]);
+  const monthDays = useMemo(() => getLocalMonthDays(year, month - 1), [year, month]);
+  const firstWeekday = useMemo(() => getMondayFirstWeekday(year, month - 1), [year, month]);
+  const weekCount = useMemo(() => getCalendarWeekCount(year, month - 1), [year, month]);
   const selected = dayMap.get(selectedDate);
 
   const yearOptions = useMemo(() => {
@@ -248,15 +236,7 @@ export default function CalendarView(): React.ReactElement {
             </div>
           </div>
           <div className="header-actions no-drag">
-            <button
-              className="icon-button danger-button"
-              type="button"
-              title="关闭"
-              aria-label="关闭"
-              onClick={() => window.todoApi.closeCurrentWindow()}
-            >
-              <X aria-hidden className="button-icon" strokeWidth={2} />
-            </button>
+            <CloseWindowButton className="icon-button danger-button" />
           </div>
         </header>
 
