@@ -178,9 +178,125 @@ textarea {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 18px;
+  padding: 0;
   -webkit-app-region: drag;
+}
+
+/* 不用 zoom：窄高窗上 zoom 会把标题和按钮挤出可视区 */
+.widget-card-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: calc(14px * var(--widget-scale, 1));
+  padding: calc(18px * var(--widget-scale, 1));
+  box-sizing: border-box;
+}
+
+.widget-title-block {
+  min-width: 0;
+  flex: 1;
+}
+
+.widget-card h1 {
+  overflow: hidden;
+  font-size: calc(24px * var(--widget-scale, 1));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.widget-card .eyebrow {
+  font-size: calc(12px * var(--widget-scale, 1));
+}
+
+.widget-card .icon-button {
+  width: calc(32px * var(--widget-scale, 1));
+  height: calc(32px * var(--widget-scale, 1));
+}
+
+.widget-card .button-icon {
+  width: calc(18px * var(--widget-scale, 1));
+  height: calc(18px * var(--widget-scale, 1));
+}
+
+.widget-card .header-actions {
+  flex-shrink: 0;
+}
+
+/* 窄窗藏底栏长提示，给图标和「添加」留位置 */
+.widget-card[data-compact="true"] .widget-footer > span {
+  display: none;
+}
+
+/* 叠在圆角卡片边上，不挡标题按钮；透明以免改外观 */
+.widget-resize-handle {
+  position: absolute;
+  z-index: 20;
+  touch-action: none;
+}
+
+.widget-resize-n,
+.widget-resize-s {
+  left: 14px;
+  right: 14px;
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.widget-resize-e,
+.widget-resize-w {
+  top: 14px;
+  bottom: 14px;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.widget-resize-n {
+  top: 0;
+}
+
+.widget-resize-s {
+  bottom: 0;
+}
+
+.widget-resize-e {
+  right: 0;
+}
+
+.widget-resize-w {
+  left: 0;
+}
+
+.widget-resize-ne,
+.widget-resize-nw,
+.widget-resize-se,
+.widget-resize-sw {
+  width: 14px;
+  height: 14px;
+}
+
+.widget-resize-ne {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+
+.widget-resize-nw {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+
+.widget-resize-se {
+  right: 0;
+  bottom: 0;
+  cursor: nwse-resize;
+}
+
+.widget-resize-sw {
+  left: 0;
+  bottom: 0;
+  cursor: nesw-resize;
 }
 
 .settings-window-card,

@@ -17,6 +17,8 @@ import { TodoTagChips } from "./TodoTags";
 import { DEFAULT_QUICK_ADD_SHORTCUT, DEFAULT_SHOW_WIDGET_SHORTCUT, formatShortcut } from "./data/shortcut";
 import { formatDate, formatWaitingDays } from "./todoFormat";
 import type { AppSettings, Todo, TodoSnapshot } from "./types/todo";
+import { useWidgetContentScale } from "./useWidgetContentScale";
+import { WidgetResizeHandles } from "./useWidgetResize";
 
 /** IPC 加载前的占位快照，避免首屏 undefined */
 const emptySnapshot: TodoSnapshot = {
@@ -64,6 +66,9 @@ export default function App(): React.ReactElement {
   const [contextMenu, setContextMenu] = useState<TodoContextMenuPos | null>(null);
   /** null=全部；否则按标签筛选今日待办；与 settings.tagFilter 同步持久化 */
   const [tagFilter, setTagFilter] = useState<string | null>(null);
+  /** 窗口小于默认尺寸时收内容，避免标题/按钮把列表挤没 */
+  const cardRef = useRef<HTMLElement>(null);
+  useWidgetContentScale(cardRef);
   /** 避免启动竞态：快照未到时不要因 availableTags 为空而清掉已恢复的筛选 */
   const tagFilterHydratedRef = useRef(false);
 
@@ -258,9 +263,17 @@ export default function App(): React.ReactElement {
 
   return (
     <main className="widget-shell">
-      <section className="widget-card" onMouseEnter={wakeWidget} onMouseDown={handleWidgetMouseDown}>
+      <section
+        ref={cardRef}
+        className="widget-card"
+        onMouseEnter={wakeWidget}
+        onMouseDown={handleWidgetMouseDown}
+      >
+        {/* 透明窗没有系统缩放边，用卡片边缘热区改尺寸 */}
+        <WidgetResizeHandles />
+        <div className="widget-card-body">
         <header className="widget-header">
-          <div>
+          <div className="widget-title-block">
             <p className="eyebrow">{formatDate(snapshot.today)}</p>
             <h1>桌面代办</h1>
           </div>
@@ -459,6 +472,7 @@ export default function App(): React.ReactElement {
           </div>
           <span>{footerHint}</span>
         </footer>
+        </div>
 
         {/* 删除确认：与编辑弹窗同结构，危险操作用红色主按钮 */}
         {deleteConfirm ? (
