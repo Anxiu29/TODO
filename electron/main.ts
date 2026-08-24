@@ -9,9 +9,15 @@
  *
  * 启动顺序：configureUserDataPath → requestSingleInstanceLock → app.whenReady → boot
  */
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen, shell, Tray } from "electron";
+import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen, Tray } from "electron";
 import { join } from "node:path";
-import { ALLOWED_EXTERNAL_URLS } from "../src/constants/projectLinks";
+import {
+  clampBoundsToWorkArea,
+  defaultWidgetBoundsInWorkArea,
+  isPointInBounds,
+  WIDGET_MIN_HEIGHT,
+  WIDGET_MIN_WIDTH
+} from "../src/data/windowBounds";
 import { configureUserDataPath, getAppIconPath, getLoginExecutablePath } from "./appPaths";
 import { createDailyRefreshWatch } from "./dailyRefreshWatch";
 import {
@@ -22,10 +28,13 @@ import {
   syncDesktopWindowBounds,
   type DesktopAttachStrategy
 } from "./desktop/attachToDesktop";
+import { registerAppIpc } from "./ipcApp";
+import { registerSettingsIpc } from "./ipcSettings";
 import { registerTodoIpc } from "./ipcTodos";
+import { attachRevealOnce, centeredOnPrimaryWorkArea, openOrFocusAuxWindow, transparentWindowOptions } from "./rendererWindow";
 import { TodoStore } from "./todoStore";
-import { checkForUpdates, dismissUpdate, downloadUpdate, getAppVersionInfo, getUpdateStatus, quitAndInstallUpdate, setupAutoUpdater } from "./updater";
-import { FALLBACK_SHORTCUTS, normalizeShortcut } from "../src/data/shortcut";
+import { setupAutoUpdater } from "./updater";
+import { normalizeShortcut, shortcutCandidateList } from "../src/data/shortcut";
 import { normalizeTodoTags } from "../src/types/todo";
 import type {
   EditTodoPayload,
@@ -33,7 +42,6 @@ import type {
   ShortcutRegistrationResult,
   TodoSnapshot,
   WidgetDisplayMode,
-  WidgetTheme,
   WindowBounds
 } from "../src/types/todo";
 
@@ -287,13 +295,7 @@ const startDesktopInputWatch = (): void => {
 
     const point = screen.getCursorScreenPoint();
     const bounds = widgetWindow.getBounds();
-    const inside =
-      point.x >= bounds.x &&
-      point.x < bounds.x + bounds.width &&
-      point.y >= bounds.y &&
-      point.y < bounds.y + bounds.height;
-
-    if (!inside) {
+    if (!isPointInBounds(point, bounds)) {
       return;
     }
 
@@ -510,26 +512,13 @@ const scheduleDesktopAttachRetries = (): void => {
 };
 
 /** 首次启动或无保存位置时，默认放在主屏工作区右上角 */
-const defaultWidgetBounds = (): WindowBounds => {
-  const display = screen.getPrimaryDisplay().workArea;
-  return {
-    x: display.x + display.width - 360,
-    y: display.y + 72,
-    width: 320,
-    height: 460
-  };
-};
+const defaultWidgetBounds = (): WindowBounds =>
+  defaultWidgetBoundsInWorkArea(screen.getPrimaryDisplay().workArea);
 
 /** 将保存的窗口位置限制在当前可见屏幕内，避免换电脑后跑到屏幕外 */
 const clampWidgetBounds = (bounds: WindowBounds): WindowBounds => {
   const display = screen.getDisplayNearestPoint({ x: bounds.x, y: bounds.y });
-  const area = display.workArea;
-  const width = Math.min(Math.max(bounds.width, 280), area.width);
-  const height = Math.min(Math.max(bounds.height, 360), area.height);
-  const x = Math.min(Math.max(bounds.x, area.x), area.x + area.width - width);
-  const y = Math.min(Math.max(bounds.y, area.y), area.y + area.height - height);
-
-  return { x, y, width, height };
+  return clampBoundsToWorkArea(bounds, display.workArea);
 };
 
 const getWidgetBounds = (): WindowBounds => {
@@ -557,28 +546,18 @@ const persistWidgetBounds = (): void => {
 const createWidgetWindow = async (): Promise<void> => {
   const bounds = getWidgetBounds();
 
-  widgetWindow = new BrowserWindow({
-    ...bounds,
-    minWidth: 280,
-    minHeight: 360,
-    frame: false,
-    transparent: true,
-    backgroundColor: "#00000000",
-    hasShadow: false,
-    thickFrame: false,
-    resizable: true,
-    minimizable: !isDesktopPinnedMode() && !isFloating(),
-    skipTaskbar: isDesktopPinnedMode() || isFloating(),
-    show: false,
-    title: "桌面代办",
-    icon: getAppIconPath(),
-    webPreferences: {
-      preload: join(__dirname, "../preload/preload.mjs"),
-      sandbox: false,
-      contextIsolation: true,
-      nodeIntegration: false
-    }
-  });
+  widgetWindow = new BrowserWindow(
+    transparentWindowOptions({
+      ...bounds,
+      minWidth: WIDGET_MIN_WIDTH,
+      minHeight: WIDGET_MIN_HEIGHT,
+      thickFrame: false,
+      resizable: true,
+      minimizable: !isDesktopPinnedMode() && !isFloating(),
+      skipTaskbar: isDesktopPinnedMode() || isFloating(),
+      title: "桌面代办"
+    })
+  );
 
   widgetWindow.on("move", persistWidgetBounds);
   widgetWindow.on("will-resize", () => {
@@ -656,18 +635,11 @@ const createWidgetWindow = async (): Promise<void> => {
     widgetWindow = null;
   });
 
-  let revealed = false;
-  const revealOnce = (): void => {
-    if (revealed || !widgetWindow) return;
-    revealed = true;
+  const revealOnce = attachRevealOnce(widgetWindow, () => {
     revealWidgetWindow();
-  };
-
-  widgetWindow.once("ready-to-show", revealOnce);
-  widgetWindow.webContents.once("did-finish-load", revealOnce);
+  });
 
   await loadRenderer(widgetWindow, "widget");
-
   setTimeout(revealOnce, 1500);
 };
 
@@ -694,40 +666,26 @@ const createAddTodoWindow = async (options?: { tags?: string[] }): Promise<void>
     return;
   }
 
-  const display = screen.getPrimaryDisplay().workArea;
-  // 含星级、预计天数、可选标签提示与确认按钮；标题换行时再增高
   const windowHeight = 340;
-  addTodoWindow = new BrowserWindow({
-    width: 420,
-    height: windowHeight,
-    x: Math.round(display.x + display.width / 2 - 210),
-    y: Math.round(display.y + display.height / 2 - windowHeight / 2),
-    frame: false,
-    transparent: true,
-    backgroundColor: "#00000000",
-    resizable: false,
-    hasShadow: false,
-    show: false,
-    title: "添加代办",
-    icon: getAppIconPath(),
-    webPreferences: {
-      preload: join(__dirname, "../preload/preload.mjs"),
-      sandbox: false,
-      contextIsolation: true,
-      nodeIntegration: false
-    }
-  });
+  addTodoWindow = new BrowserWindow(
+    transparentWindowOptions({
+      ...centeredOnPrimaryWorkArea(420, windowHeight),
+      resizable: false,
+      title: "添加代办"
+    })
+  );
 
   addTodoWindow.on("closed", () => {
     addTodoWindow = null;
   });
 
-  await loadRenderer(addTodoWindow, "add");
-  addTodoWindow.once("ready-to-show", () => {
+  const revealOnce = attachRevealOnce(addTodoWindow, () => {
     addTodoWindow?.show();
     addTodoWindow?.focus();
     sendQuickAddFocus();
   });
+  await loadRenderer(addTodoWindow, "add");
+  setTimeout(revealOnce, 1000);
 };
 
 /** 向编辑窗推送要改的待办 id */
@@ -750,146 +708,55 @@ const createEditTodoWindow = async (todoId: string): Promise<void> => {
     return;
   }
 
-  const display = screen.getPrimaryDisplay().workArea;
   const windowHeight = 240;
-  editTodoWindow = new BrowserWindow({
-    width: 420,
-    height: windowHeight,
-    x: Math.round(display.x + display.width / 2 - 210),
-    y: Math.round(display.y + display.height / 2 - windowHeight / 2),
-    frame: false,
-    transparent: true,
-    backgroundColor: "#00000000",
-    resizable: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    hasShadow: false,
-    show: false,
-    title: "编辑待办",
-    icon: getAppIconPath(),
-    webPreferences: {
-      preload: join(__dirname, "../preload/preload.mjs"),
-      sandbox: false,
-      contextIsolation: true,
-      nodeIntegration: false
-    }
-  });
+  editTodoWindow = new BrowserWindow(
+    transparentWindowOptions({
+      ...centeredOnPrimaryWorkArea(420, windowHeight),
+      resizable: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      title: "编辑待办"
+    })
+  );
 
   editTodoWindow.on("closed", () => {
     editTodoWindow = null;
     pendingEditTodoId = null;
   });
 
-  let revealed = false;
-  const revealOnce = (): void => {
-    if (revealed || !editTodoWindow) return;
-    revealed = true;
-    editTodoWindow.show();
-    editTodoWindow.focus();
+  const revealOnce = attachRevealOnce(editTodoWindow, () => {
+    editTodoWindow?.show();
+    editTodoWindow?.focus();
     sendEditTodoOpen();
-  };
-
-  editTodoWindow.once("ready-to-show", revealOnce);
-  editTodoWindow.webContents.once("did-finish-load", revealOnce);
-
+  });
   await loadRenderer(editTodoWindow, "edit", { id: todoId });
   setTimeout(revealOnce, 1000);
 };
 
 const createCalendarWindow = async (): Promise<void> => {
-  if (calendarWindow) {
-    calendarWindow.show();
-    calendarWindow.focus();
-    return;
-  }
-
-  calendarWindow = new BrowserWindow({
-    width: 760,
-    height: 640,
-    minWidth: 620,
-    minHeight: 520,
-    frame: false,
-    transparent: true,
-    backgroundColor: "#00000000",
-    hasShadow: false,
-    thickFrame: false,
+  await openOrFocusAuxWindow({
+    existing: calendarWindow,
+    setWindow: (win) => {
+      calendarWindow = win;
+    },
+    view: "calendar",
     title: "完成日历",
-    show: false,
-    icon: getAppIconPath(),
-    webPreferences: {
-      preload: join(__dirname, "../preload/preload.mjs"),
-      sandbox: false,
-      contextIsolation: true,
-      nodeIntegration: false
-    }
+    bounds: { width: 760, height: 640, minWidth: 620, minHeight: 520 },
+    load: loadRenderer
   });
-
-  calendarWindow.on("closed", () => {
-    calendarWindow = null;
-  });
-
-  let revealed = false;
-  const revealOnce = (): void => {
-    if (revealed || !calendarWindow) return;
-    revealed = true;
-    calendarWindow.show();
-    calendarWindow.focus();
-  };
-
-  calendarWindow.once("ready-to-show", revealOnce);
-  calendarWindow.webContents.once("did-finish-load", revealOnce);
-
-  await loadRenderer(calendarWindow, "calendar");
-
-  setTimeout(revealOnce, 1000);
 };
 
 const createSettingsWindow = async (): Promise<void> => {
-  if (settingsWindow) {
-    settingsWindow.show();
-    settingsWindow.focus();
-    return;
-  }
-
-  settingsWindow = new BrowserWindow({
-    width: 520,
-    height: 640,
-    minWidth: 420,
-    minHeight: 520,
-    frame: false,
-    transparent: true,
-    backgroundColor: "#00000000",
-    hasShadow: false,
-    thickFrame: false,
+  await openOrFocusAuxWindow({
+    existing: settingsWindow,
+    setWindow: (win) => {
+      settingsWindow = win;
+    },
+    view: "settings",
     title: "设置",
-    show: false,
-    icon: getAppIconPath(),
-    webPreferences: {
-      preload: join(__dirname, "../preload/preload.mjs"),
-      sandbox: false,
-      contextIsolation: true,
-      nodeIntegration: false
-    }
+    bounds: { width: 520, height: 640, minWidth: 420, minHeight: 520 },
+    load: loadRenderer
   });
-
-  settingsWindow.on("closed", () => {
-    settingsWindow = null;
-  });
-
-  let revealed = false;
-  const revealOnce = (): void => {
-    if (revealed || !settingsWindow) return;
-    revealed = true;
-    settingsWindow.show();
-    settingsWindow.focus();
-  };
-
-  settingsWindow.once("ready-to-show", revealOnce);
-  settingsWindow.webContents.once("did-finish-load", revealOnce);
-
-  await loadRenderer(settingsWindow, "settings");
-
-  setTimeout(revealOnce, 1000);
 };
 
 /** 设置写入 store 后广播，并返回最新 settings 供 IPC 响应 */
@@ -924,22 +791,20 @@ const setWidgetDisplayMode = async (displayMode: WidgetDisplayMode): Promise<Ret
 /** 注册渲染进程 IPC：待办 CRUD、设置、窗口控制。 */
 const registerIpc = (): void => {
   registerTodoIpc(store, broadcastSnapshot);
-  ipcMain.handle("settings:get", () => {
-    syncLoginSetting();
-    return store.getSettings();
+  registerAppIpc();
+  registerSettingsIpc({
+    getSettings: () => store.getSettings(),
+    syncLoginSetting,
+    applyLoginSetting,
+    applySettings,
+    setLaunchAtLogin: (enabled) => store.setLaunchAtLogin(enabled),
+    setDisplayMode: (mode) => setWidgetDisplayMode(mode),
+    setTheme: (theme) => store.setTheme(theme),
+    setWidgetOpacity: (opacity) => store.setWidgetOpacity(opacity),
+    setTagFilter: (tagFilter) => store.setTagFilter(tagFilter),
+    setShortcut: (shortcut) => updateShortcut("quickAdd", shortcut),
+    setShowWidgetShortcut: (shortcut) => updateShortcut("showWidget", shortcut)
   });
-  ipcMain.handle("settings:setLaunchAtLogin", (_event, enabled: boolean) => {
-    applyLoginSetting(enabled);
-    return applySettings(store.setLaunchAtLogin(enabled));
-  });
-  ipcMain.handle("settings:setDisplayMode", (_event, displayMode: WidgetDisplayMode) => setWidgetDisplayMode(displayMode));
-  ipcMain.handle("settings:setTheme", (_event, theme: WidgetTheme) => applySettings(store.setTheme(theme)));
-  ipcMain.handle("settings:setWidgetOpacity", (_event, opacity: number) => applySettings(store.setWidgetOpacity(opacity)));
-  ipcMain.handle("settings:setTagFilter", (_event, tagFilter: string | null) =>
-    applySettings(store.setTagFilter(tagFilter))
-  );
-  ipcMain.handle("settings:setShortcut", (_event, shortcut: string) => updateShortcut("quickAdd", shortcut));
-  ipcMain.handle("settings:setShowWidgetShortcut", (_event, shortcut: string) => updateShortcut("showWidget", shortcut));
   ipcMain.handle("windows:openAddTodo", (_event, options?: { tags?: string[] }) =>
     createAddTodoWindow(options)
   );
@@ -1003,20 +868,6 @@ const registerIpc = (): void => {
     stopDesktopInputWatch();
     widgetWindow?.hide();
   });
-  ipcMain.handle("app:quit", () => app.quit());
-  ipcMain.handle("app:getVersion", () => getAppVersionInfo());
-  ipcMain.handle("app:getUpdateStatus", () => getUpdateStatus());
-  ipcMain.handle("app:checkForUpdates", () => checkForUpdates());
-  ipcMain.handle("app:downloadUpdate", () => downloadUpdate());
-  ipcMain.handle("app:dismissUpdate", () => dismissUpdate());
-  ipcMain.handle("app:quitAndInstall", () => quitAndInstallUpdate());
-  /** 仅允许打开白名单发行页（GitHub / Gitee），用系统浏览器下载最新版 */
-  ipcMain.handle("app:openExternal", async (_event, url: string) => {
-    if (typeof url !== "string" || !ALLOWED_EXTERNAL_URLS.has(url)) {
-      throw new Error("不允许打开该链接");
-    }
-    await shell.openExternal(url);
-  });
 }
 
 /** 两类全局快捷键：唤起添加窗口 / 临时显示挂件 */
@@ -1045,14 +896,12 @@ const runShortcutAction = (kind: ShortcutKind): void => {
 
 /**
  * 注册单个全局快捷键。
- * - 首选组合被占用时依次尝试 FALLBACK_SHORTCUTS
+ * - 首选组合被占用时依次尝试 shortcutCandidateList 的 fallback
  * - 全部失败则保留原设置并返回 registered: false
  */
 const registerShortcut = (kind: ShortcutKind, requestedShortcut?: string): ShortcutRegistrationResult => {
   const preferredShortcut = requestedShortcut ? normalizeShortcut(requestedShortcut) : getShortcutValue(kind);
-  const shortcutCandidates = requestedShortcut
-    ? [preferredShortcut]
-    : [preferredShortcut, ...FALLBACK_SHORTCUTS].filter((shortcut, index, shortcuts) => shortcuts.indexOf(shortcut) === index);
+  const shortcutCandidates = shortcutCandidateList(preferredShortcut, Boolean(requestedShortcut));
 
   for (const shortcut of shortcutCandidates) {
     let registered = false;

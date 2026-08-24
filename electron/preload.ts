@@ -19,6 +19,13 @@ import type {
 } from "../src/types/todo";
 import type { AppVersionInfo, UpdateStatus } from "../src/types/update";
 
+/** 订阅主进程 push 事件；返回取消函数，组件 unmount 时必须调用 */
+const subscribe = <T>(channel: string, callback: (payload: T) => void): (() => void) => {
+  const listener = (_event: Electron.IpcRendererEvent, payload: T): void => callback(payload);
+  ipcRenderer.on(channel, listener);
+  return () => ipcRenderer.removeListener(channel, listener);
+};
+
 /** 渲染进程可调用的 API，经 contextBridge 安全暴露给 window.todoApi */
 const api = {
   // ── 待办 CRUD ──────────────────────────────────────────────
@@ -97,47 +104,24 @@ const api = {
 
   // ── 主进程 → 渲染进程 事件订阅 ─────────────────────────────
   /** 任意窗口修改待办后广播；返回取消订阅函数，组件 unmount 时必须调用 */
-  onTodosChanged: (callback: (snapshot: TodoSnapshot) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, snapshot: TodoSnapshot): void => callback(snapshot);
-    ipcRenderer.on("todos:changed", listener);
-    return () => ipcRenderer.removeListener("todos:changed", listener);
-  },
+  onTodosChanged: (callback: (snapshot: TodoSnapshot) => void): (() => void) =>
+    subscribe("todos:changed", callback),
   /** 桌面附着成功/失败结果，挂件 footer 据此显示提示 */
-  onDesktopAttachResult: (callback: (attached: boolean) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, attached: boolean): void => callback(attached);
-    ipcRenderer.on("desktop-attach:result", listener);
-    return () => ipcRenderer.removeListener("desktop-attach:result", listener);
-  },
-  onSettingsChanged: (callback: (settings: AppSettings) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, settings: AppSettings): void => callback(settings);
-    ipcRenderer.on("settings:changed", listener);
-    return () => ipcRenderer.removeListener("settings:changed", listener);
-  },
+  onDesktopAttachResult: (callback: (attached: boolean) => void): (() => void) =>
+    subscribe("desktop-attach:result", callback),
+  onSettingsChanged: (callback: (settings: AppSettings) => void): (() => void) =>
+    subscribe("settings:changed", callback),
   /** 置顶模式切换时同步 pin 按钮状态 */
-  onFloatStateChanged: (callback: (floating: boolean) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, floating: boolean): void => callback(floating);
-    ipcRenderer.on("widget:float-state-changed", listener);
-    return () => ipcRenderer.removeListener("widget:float-state-changed", listener);
-  },
+  onFloatStateChanged: (callback: (floating: boolean) => void): (() => void) =>
+    subscribe("widget:float-state-changed", callback),
   /** 快捷添加窗口被再次唤起时聚焦输入框，并同步预填标签 */
-  onQuickAddFocus: (callback: (payload: QuickAddFocusPayload) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, payload: QuickAddFocusPayload): void =>
-      callback(payload ?? { tags: [] });
-    ipcRenderer.on("quick-add:focus", listener);
-    return () => ipcRenderer.removeListener("quick-add:focus", listener);
-  },
+  onQuickAddFocus: (callback: (payload: QuickAddFocusPayload) => void): (() => void) =>
+    subscribe<QuickAddFocusPayload>("quick-add:focus", (payload) => callback(payload ?? { tags: [] })),
   /** 编辑窗被再次唤起或切换待办时灌入标题 */
-  onEditTodoOpen: (callback: (payload: EditTodoPayload) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, payload: EditTodoPayload): void =>
-      callback(payload);
-    ipcRenderer.on("edit-todo:open", listener);
-    return () => ipcRenderer.removeListener("edit-todo:open", listener);
-  },
-  onUpdateStatusChanged: (callback: (status: UpdateStatus) => void): (() => void) => {
-    const listener = (_event: Electron.IpcRendererEvent, status: UpdateStatus): void => callback(status);
-    ipcRenderer.on("update:status", listener);
-    return () => ipcRenderer.removeListener("update:status", listener);
-  }
+  onEditTodoOpen: (callback: (payload: EditTodoPayload) => void): (() => void) =>
+    subscribe("edit-todo:open", callback),
+  onUpdateStatusChanged: (callback: (status: UpdateStatus) => void): (() => void) =>
+    subscribe("update:status", callback)
 };
 
 contextBridge.exposeInMainWorld("todoApi", api);
