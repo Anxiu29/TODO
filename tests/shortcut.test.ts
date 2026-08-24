@@ -5,7 +5,8 @@ import {
   eventToShortcut,
   formatShortcut,
   keyToAcceleratorPart,
-  normalizeShortcut
+  normalizeShortcut,
+  shortcutCandidateList
 } from "../src/data/shortcut";
 
 describe("normalizeShortcut", () => {
@@ -63,5 +64,18 @@ describe("keyToAcceleratorPart", () => {
     // 数字键优先于 Numpad code，避免把主键盘 5 写成 num5
     expect(keyToAcceleratorPart("5", "Numpad5")).toBe("5");
     expect(keyToAcceleratorPart("Enter", "NumpadEnter")).toBe("numEnter");
+  });
+});
+
+describe("shortcutCandidateList", () => {
+  it("only tries the requested combo when the user just set one", () => {
+    expect(shortcutCandidateList("CommandOrControl+3", true)).toEqual(["CommandOrControl+3"]);
+  });
+
+  it("appends fallbacks and drops duplicates on startup", () => {
+    expect(shortcutCandidateList(DEFAULT_QUICK_ADD_SHORTCUT, false)[0]).toBe(DEFAULT_QUICK_ADD_SHORTCUT);
+    expect(new Set(shortcutCandidateList(DEFAULT_QUICK_ADD_SHORTCUT, false)).size).toBe(
+      shortcutCandidateList(DEFAULT_QUICK_ADD_SHORTCUT, false).length
+    );
   });
 });

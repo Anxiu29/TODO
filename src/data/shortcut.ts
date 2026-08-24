@@ -15,6 +15,14 @@ export const FALLBACK_SHORTCUTS = [
 ] as const;
 
 /**
+ * 注册时的候选列表：用户刚改的组合只试一次；启动时再追加 fallback 并去重。
+ */
+export const shortcutCandidateList = (preferred: string, userRequested: boolean): string[] => {
+  if (userRequested) return [preferred];
+  return [preferred, ...FALLBACK_SHORTCUTS].filter((shortcut, index, all) => all.indexOf(shortcut) === index);
+};
+
+/**
  * Electron 加速器 → 用户可读。
  * 例："CommandOrControl+Alt+T" → "Ctrl + Alt + T"
  */
