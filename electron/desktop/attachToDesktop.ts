@@ -202,6 +202,19 @@ const setDesktopOwner = (hwnd: Hwnd, owner: Hwnd): boolean => {
 
 export const isDesktopHostAvailable = (): boolean => process.platform === "win32" && FindWindowW("Progman", null) !== null;
 
+/** 是否 SetParent 到桌面层。子窗缩放会闪；Owner=DefView 仍是顶层，不要 detach。 */
+export const isWindowDesktopChild = (window: BrowserWindow): boolean => {
+  if (process.platform !== "win32") {
+    return false;
+  }
+
+  try {
+    return Boolean(GetParent(readHwnd(window)));
+  } catch {
+    return false;
+  }
+};
+
 export const isWindowDesktopAttached = (window: BrowserWindow): boolean => {
   if (process.platform !== "win32") {
     return false;

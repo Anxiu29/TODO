@@ -16,7 +16,8 @@ import {
   defaultWidgetBoundsInWorkArea,
   isPointInBounds,
   WIDGET_MIN_HEIGHT,
-  WIDGET_MIN_WIDTH
+  WIDGET_MIN_WIDTH,
+  type WorkArea
 } from "../src/data/windowBounds";
 import { configureUserDataPath, getAppIconPath, getLoginExecutablePath } from "./appPaths";
 import { createDailyRefreshWatch } from "./dailyRefreshWatch";
@@ -24,6 +25,7 @@ import {
   attachWindowToDesktop,
   detachWindowFromDesktop,
   isWindowDesktopAttached,
+  isWindowDesktopChild,
   raiseDesktopWidgetForInput,
   syncDesktopWindowBounds,
   type DesktopAttachStrategy
@@ -86,6 +88,10 @@ let widgetDragDetached = false;
 let resizeReattachTimer: NodeJS.Timeout | undefined;
 /** 缩放过程中是否已从桌面层脱离 */
 let widgetResizeDetached = false;
+/** 渲染层热区正在拖尺寸，避免 resized 定时器中途又贴回桌面 */
+let widgetManualResizing = false;
+/** 缩放过程中复用工作区，避免每帧 getDisplayNearestPoint */
+let resizeWorkArea: WorkArea | null = null;
 
 /** 当前是否处于悬浮模式（手动置顶 或 临时显示） */
 const isFloating = (): boolean => pinnedFloat || temporaryFloat;
@@ -551,6 +557,7 @@ const createWidgetWindow = async (): Promise<void> => {
       ...bounds,
       minWidth: WIDGET_MIN_WIDTH,
       minHeight: WIDGET_MIN_HEIGHT,
+      // 透明窗在 Windows 上会被拆掉 WS_THICKFRAME，系统边缘拖不动；尺寸改走渲染层热区
       thickFrame: false,
       resizable: true,
       minimizable: !isDesktopPinnedMode() && !isFloating(),
@@ -561,11 +568,12 @@ const createWidgetWindow = async (): Promise<void> => {
 
   widgetWindow.on("move", persistWidgetBounds);
   widgetWindow.on("will-resize", () => {
-    if (!widgetWindow || isFloating() || !isDesktopPinnedMode() || widgetResizeDetached) {
+    if (!widgetWindow || widgetManualResizing || isFloating() || !isDesktopPinnedMode() || widgetResizeDetached) {
       return;
     }
 
-    if (!isWindowDesktopAttached(widgetWindow)) {
+    // Owner 模式仍是顶层窗，detach 会闪一下并把指针捕获打掉
+    if (!isWindowDesktopChild(widgetWindow)) {
       return;
     }
 
@@ -583,9 +591,13 @@ const createWidgetWindow = async (): Promise<void> => {
       await attachDesktopWidget();
     })();
   });
-  widgetWindow.on("resize", persistWidgetBounds);
+  widgetWindow.on("resize", () => {
+    // 自定义缩放每帧都会触发 resize，拖动中不写盘
+    if (widgetManualResizing) return;
+    persistWidgetBounds();
+  });
   widgetWindow.on("resized", () => {
-    if (!widgetWindow || isFloating() || !isDesktopPinnedMode()) {
+    if (!widgetWindow || widgetManualResizing || isFloating() || !isDesktopPinnedMode()) {
       return;
     }
 
@@ -844,6 +856,42 @@ const registerIpc = (): void => {
 
     return pinnedFloat;
   });
+  /** 仅接受有限数字矩形，避免脏 IPC 把窗口拖飞 */
+  const asWindowBounds = (value: unknown): WindowBounds | null => {
+    if (!value || typeof value !== "object") return null;
+    const { x, y, width, height } = value as Record<string, unknown>;
+    if (
+      typeof x !== "number" ||
+      typeof y !== "number" ||
+      typeof width !== "number" ||
+      typeof height !== "number" ||
+      ![x, y, width, height].every(Number.isFinite)
+    ) {
+      return null;
+    }
+    return { x, y, width, height };
+  };
+
+  const applyManualWidgetBounds = (bounds: WindowBounds): void => {
+    if (!widgetWindow || widgetWindow.isDestroyed()) return;
+    const area =
+      resizeWorkArea ?? screen.getDisplayNearestPoint({ x: bounds.x, y: bounds.y }).workArea;
+    const next = clampBoundsToWorkArea(bounds, area);
+    const current = widgetWindow.getBounds();
+    if (
+      current.x === next.x &&
+      current.y === next.y &&
+      current.width === next.width &&
+      current.height === next.height
+    ) {
+      return;
+    }
+    widgetWindow.setBounds(next, false);
+    if (!widgetResizeDetached) {
+      syncDesktopWindowBounds(widgetWindow);
+    }
+  };
+
   /** 桌面固定时拖拽需先 detach，松手后再附着 */
   ipcMain.handle("widget:prepareDrag", () => {
     if (!widgetWindow || isFloating() || !isDesktopPinnedMode()) {
@@ -861,6 +909,44 @@ const registerIpc = (): void => {
       widgetDragDetached = false;
       void attachDesktopWidget();
     }, 450);
+  });
+  ipcMain.handle("widget:beginResize", (event): WindowBounds | null => {
+    if (!widgetWindow || widgetWindow.isDestroyed() || event.sender !== widgetWindow.webContents) {
+      return null;
+    }
+
+    widgetManualResizing = true;
+    resizeWorkArea = screen.getDisplayNearestPoint(widgetWindow.getBounds()).workArea;
+    clearTimeout(dragAttachFallbackTimer);
+    clearTimeout(resizeReattachTimer);
+    // 仅 SetParent 子窗才脱离；系统壁纸 Owner 模式 detach 会闪烁并取消指针捕获
+    if (!isFloating() && isDesktopPinnedMode() && isWindowDesktopChild(widgetWindow)) {
+      detachWindowFromDesktop(widgetWindow);
+      widgetResizeDetached = true;
+    }
+
+    return widgetWindow.getBounds();
+  });
+  ipcMain.on("widget:resizeTo", (event, raw: unknown) => {
+    if (!widgetWindow || widgetWindow.isDestroyed() || event.sender !== widgetWindow.webContents) {
+      return;
+    }
+    const bounds = asWindowBounds(raw);
+    if (!bounds) return;
+    applyManualWidgetBounds(bounds);
+  });
+  ipcMain.handle("widget:endResize", (event) => {
+    if (!widgetWindow || widgetWindow.isDestroyed() || event.sender !== widgetWindow.webContents) {
+      return;
+    }
+
+    widgetManualResizing = false;
+    resizeWorkArea = null;
+    store.updateWidgetBounds(widgetWindow.getBounds());
+    if (!isFloating() && isDesktopPinnedMode() && widgetResizeDetached) {
+      widgetResizeDetached = false;
+      void attachDesktopWidget();
+    }
   });
   /** 最小化：隐藏挂件；桌面固定下须停光标巡检，否则会立刻被 show 回来 */
   ipcMain.handle("widget:minimize", () => {

@@ -15,7 +15,8 @@ import type {
   TodoSnapshot,
   TodoUpdate,
   WidgetDisplayMode,
-  WidgetTheme
+  WidgetTheme,
+  WindowBounds
 } from "../src/types/todo";
 import type { AppVersionInfo, UpdateStatus } from "../src/types/update";
 
@@ -89,6 +90,14 @@ const api = {
   resizeAddTodoWindow: (height: number): Promise<void> => ipcRenderer.invoke("windows:resizeAddTodo", height),
   wakeWidget: (): Promise<void> => ipcRenderer.invoke("widget:wake"),
   prepareWidgetDrag: (): Promise<void> => ipcRenderer.invoke("widget:prepareDrag"),
+  /** 开始自定义缩放：桌面固定下先 detach，返回当前 bounds */
+  beginWidgetResize: (): Promise<WindowBounds | null> => ipcRenderer.invoke("widget:beginResize"),
+  /** 拖动中写入窗口矩形；send 单向，避免每帧 invoke 卡住指针 */
+  resizeWidgetTo: (bounds: WindowBounds): void => {
+    ipcRenderer.send("widget:resizeTo", bounds);
+  },
+  /** 松手后落盘并重新贴回桌面 */
+  endWidgetResize: (): Promise<void> => ipcRenderer.invoke("widget:endResize"),
   getFloatOnPage: (): Promise<boolean> => ipcRenderer.invoke("widget:getFloatOnPage"),
   toggleFloatOnPage: (): Promise<boolean> => ipcRenderer.invoke("widget:toggleFloatOnPage"),
   minimizeWidget: (): Promise<void> => ipcRenderer.invoke("widget:minimize"),
