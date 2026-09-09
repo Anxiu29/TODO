@@ -41,11 +41,51 @@ const files = [...binaryFiles, ...manifestFiles];
 const sha256Hex = (filePath) =>
   createHash("sha256").update(readFileSync(filePath)).digest("hex");
 
-const ghEnv = {
-  ...process.env,
-  GH_TOKEN: token,
-  GITHUB_TOKEN: token
+/** 先拷贝环境；token 是否注入要等探测结果，避免把失效的 GH_TOKEN 强塞给 gh */
+const ghEnv = { ...process.env };
+
+const setGhTokenEnv = (tok) => {
+  if (tok) {
+    ghEnv.GH_TOKEN = tok;
+    ghEnv.GITHUB_TOKEN = tok;
+    return;
+  }
+  delete ghEnv.GH_TOKEN;
+  delete ghEnv.GITHUB_TOKEN;
 };
+
+if (token) {
+  setGhTokenEnv(token);
+}
+
+/**
+ * Cursor / VS Code 在安装 gh 之前启动时，集成终端仍是旧 PATH。
+ * 除了 PATH 里的 gh，再试 Windows MSI 默认安装位置。
+ */
+const resolveGhBin = () => {
+  const candidates = [
+    "gh",
+    "gh.exe",
+    join(process.env.ProgramFiles ?? "C:\\Program Files", "GitHub CLI", "gh.exe")
+  ];
+
+  for (const cmd of candidates) {
+    const result = spawnSync(cmd, ["--version"], {
+      env: ghEnv,
+      stdio: "pipe",
+      encoding: "utf8",
+      windowsHide: true
+    });
+    if (result.status === 0) {
+      return cmd;
+    }
+  }
+
+  throw new Error("未找到 gh 命令，请先安装 GitHub CLI: https://cli.github.com/");
+};
+
+/** 在 main 里解析为 PATH 或默认安装路径下的可执行文件 */
+let ghBin = "gh";
 
 const formatSize = (bytes) => {
   if (bytes < 1024 * 1024) {
@@ -56,7 +96,7 @@ const formatSize = (bytes) => {
 
 const runGh = (args, label) => {
   console.log(`> gh ${args.join(" ")}`);
-  const result = spawnSync("gh", args, {
+  const result = spawnSync(ghBin, args, {
     env: ghEnv,
     stdio: "inherit",
     windowsHide: true
@@ -71,28 +111,16 @@ const runGh = (args, label) => {
 };
 
 const ghExists = (args) =>
-  spawnSync("gh", args, {
+  spawnSync(ghBin, args, {
     env: ghEnv,
     stdio: "ignore",
     windowsHide: true
   }).status === 0;
 
-const ensureGh = () => {
-  const result = spawnSync("gh", ["--version"], {
-    env: ghEnv,
-    stdio: "pipe",
-    encoding: "utf8",
-    windowsHide: true
-  });
-  if (result.status !== 0) {
-    throw new Error("未找到 gh 命令，请先安装 GitHub CLI: https://cli.github.com/");
-  }
-};
-
 /** 读取远端资源的 size 与 sha256（GitHub digest 字段） */
 const getRemoteAssets = () => {
   const result = spawnSync(
-    "gh",
+    ghBin,
     [
       "api",
       `repos/${owner}/${repo}/releases/tags/${tag}`,
@@ -214,7 +242,7 @@ const uploadFiles = (pending) => {
 /** 清理历史中文名被洗成 TODO.-*.exe 的残留附件，避免页面上两个坏掉的同名包 */
 const cleanupLegacyMangledAssets = () => {
   const result = spawnSync(
-    "gh",
+    ghBin,
     [
       "api",
       `repos/${owner}/${repo}/releases/tags/${tag}`,
@@ -244,12 +272,55 @@ const cleanupLegacyMangledAssets = () => {
   }
 };
 
-const main = () => {
+/** .env 的 GH_TOKEN 是否还能打 GitHub API；401 时不要再传给 gh */
+const isGhTokenValid = () => {
   if (!token) {
-    console.error("请先设置 GH_TOKEN：复制 .env.example 为 .env 并填入 token，或设置环境变量");
-    process.exit(1);
+    return false;
+  }
+  const result = spawnSync(ghBin, ["api", "user", "--jq", ".login"], {
+    env: { ...process.env, GH_TOKEN: token, GITHUB_TOKEN: token },
+    encoding: "utf8",
+    windowsHide: true,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  return result.status === 0;
+};
+
+/** 不带 GH_TOKEN 时，看 gh auth login 是否已有登录态 */
+const isGhCliLoggedIn = () => {
+  const env = { ...process.env };
+  delete env.GH_TOKEN;
+  delete env.GITHUB_TOKEN;
+  return (
+    spawnSync(ghBin, ["auth", "status", "-h", "github.com"], {
+      env,
+      stdio: "ignore",
+      windowsHide: true
+    }).status === 0
+  );
+};
+
+const ensureGithubAuth = () => {
+  if (isGhTokenValid()) {
+    setGhTokenEnv(token);
+    return;
   }
 
+  if (token) {
+    console.warn("GH_TOKEN 已失效（GitHub 返回 401），改用 gh 登录态");
+  }
+  setGhTokenEnv(undefined);
+
+  if (isGhCliLoggedIn()) {
+    return;
+  }
+
+  console.error("GitHub 认证失败：.env 的 GH_TOKEN 无效，且尚未执行 gh auth login。");
+  console.error("请运行: gh auth login --web --clipboard");
+  process.exit(1);
+};
+
+const main = () => {
   if (!existsSync(releaseDir)) {
     console.error(`未找到打包目录: ${releaseDir}`);
     console.error("请先运行 npm run dist");
@@ -266,7 +337,8 @@ const main = () => {
     process.exit(1);
   }
 
-  ensureGh();
+  ghBin = resolveGhBin();
+  ensureGithubAuth();
   console.log(`发布 ${tag} 到 ${repoSlug}`);
   ensureRelease();
   cleanupLegacyMangledAssets();

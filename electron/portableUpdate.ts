@@ -1,9 +1,17 @@
 /** 便携更新交接：复制成功后通知主进程，收到退出许可才启动新版，始终保留旧版。 */
 import { spawn } from "node:child_process";
 import { existsSync, writeFileSync } from "node:fs";
+import { basename, dirname } from "node:path";
 
 /** VBS 字符串字面量；命令行路径仍需额外保留一层引号。 */
 const quote = (value: string): string => `"${value.replace(/"/g, '""')}"`;
+
+/**
+ * VBS 字面量不能夹进引号或换行。
+ * 中文目录由 UTF-16 脚本承载，不再要求纯 ASCII。
+ */
+export const isPortableInstallPathSafe = (value: string): boolean =>
+  Boolean(value) && !/[\r\n"]/.test(value);
 
 /** 所有控制文件位于本次更新的唯一目录，避免上一次残留被误认成成功。 */
 export type PortableInstallPaths = {
@@ -48,21 +56,37 @@ export const buildPortableInstallScript = (paths: PortableInstallPaths): string 
   '  logFile.WriteLine Now & " previous process still running; launch cancelled"',
   "  WScript.Quit 3",
   "End If",
+  // Shell.Run 对整段非 ASCII 路径不稳定；先切到程序目录再用英文文件名启动。
+  `sh.CurrentDirectory = ${quote(dirname(paths.target))}`,
   "On Error Resume Next",
-  `sh.Run ${quote(`"${paths.target}"`)}, 1, False`,
+  `sh.Run ${quote(`"${basename(paths.target)}"`)}, 1, False`,
   "failure = Err.Number",
   "If failure <> 0 Then",
   '  logFile.WriteLine Now & " launch failed: " & Err.Description',
   "  Err.Clear",
+  `  sh.Run ${quote(`"${paths.target}"`)}, 1, False`,
+  "  failure = Err.Number",
+  "End If",
+  "If failure <> 0 Then",
+  "  Err.Clear",
   // 新版无法创建进程时尝试恢复旧版；即使恢复失败旧 exe 也始终可手动运行。
-  `  sh.Run ${quote(`"${paths.oldExe}"`)}, 1, False`,
-  '  If Err.Number <> 0 Then logFile.WriteLine Now & " rollback launch failed: " & Err.Description',
+  `  sh.Run ${quote(`"${basename(paths.oldExe)}"`)}, 1, False`,
+  "  If Err.Number <> 0 Then",
+  "    Err.Clear",
+  `    sh.Run ${quote(`"${paths.oldExe}"`)}, 1, False`,
+  '    If Err.Number <> 0 Then logFile.WriteLine Now & " rollback launch failed: " & Err.Description',
+  "  End If",
   "Else",
   '  logFile.WriteLine Now & " launch requested; previous version retained"',
   "End If",
   "On Error GoTo 0",
   "logFile.Close"
 ].join("\r\n");
+
+/** WSH 要 UTF-16 LE BOM 才能解析中文路径；ascii 会把非 ASCII 写成问号。 */
+export const writePortableInstallScript = (paths: PortableInstallPaths): void => {
+  writeFileSync(paths.script, `\uFEFF${buildPortableInstallScript(paths)}`, "utf16le");
+};
 
 /** 等到复制成功标记才许可退出；进程错误、脚本退出和超时均拒绝交接。 */
 export const preparePortableInstall = (paths: PortableInstallPaths): Promise<void> => new Promise((resolve, reject) => {

@@ -1,6 +1,6 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { buildPortableInstallScript, preparePortableInstall } from "./portableUpdate";
+import { isPortableInstallPathSafe, preparePortableInstall, writePortableInstallScript } from "./portableUpdate";
 import { app, BrowserWindow } from "electron";
 import electronUpdater from "electron-updater";
 import type { UpdateDownloadedEvent, UpdateInfo } from "electron-updater";
@@ -137,9 +137,6 @@ export const dismissUpdate = (): UpdateStatus => {
   return status;
 };
 
-/** 路径须为可打印 ASCII；VBS/环境变量对非 ASCII 文件名不可靠 */
-const isCmdSafePath = (value: string): boolean => /^[\x20-\x7e]+$/.test(value);
-
 /** 避免多次点击同时启动多个安装脚本。 */
 let portableInstalling = false;
 
@@ -159,8 +156,8 @@ const installPortableUpdate = async (): Promise<void> => {
     if (resolve(target).toLowerCase() === resolve(oldExe).toLowerCase()) {
       throw new Error("新版与旧版文件名相同，请手动安装；旧版未改动。");
     }
-    if (![sourceExe, target, oldExe].every(isCmdSafePath)) {
-      throw new Error("路径含非 ASCII 字符，请手动安装新版；旧版未改动。");
+    if (![sourceExe, target, oldExe].every(isPortableInstallPathSafe)) {
+      throw new Error("路径含引号或换行，无法自动安装。请手动用新版 exe 覆盖当前目录。");
     }
     const work = mkdtempSync(join(dirname(sourceExe), "install-"));
     const paths = {
@@ -169,7 +166,7 @@ const installPortableUpdate = async (): Promise<void> => {
       script: join(work, "install.vbs"), log: join(dirname(oldExe), ".update-portable.log"),
       ready: join(work, "ready"), proceed: join(work, "proceed")
     };
-    writeFileSync(paths.script, buildPortableInstallScript(paths), "ascii");
+    writePortableInstallScript(paths);
     await preparePortableInstall(paths);
     app.quit();
   } catch (error) {

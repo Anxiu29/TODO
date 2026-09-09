@@ -3,7 +3,7 @@
  * 用法：node scripts/test-portable-install.mjs
  */
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, existsSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, existsSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -13,20 +13,23 @@ import ts from "typescript";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = readFileSync(join(root, "electron/portableUpdate.ts"), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
-const { buildPortableInstallScript } = await import("data:text/javascript;base64," + Buffer.from(compiled).toString("base64"));
+const { writePortableInstallScript } = await import("data:text/javascript;base64," + Buffer.from(compiled).toString("base64"));
 const work = mkdtempSync(join(tmpdir(), "todo-update-check-"));
+const appDir = join(work, "桌面", "我的程序");
+const cacheDir = join(work, "缓存");
+mkdirSync(appDir, { recursive: true });
+mkdirSync(cacheDir, { recursive: true });
 const paths = {
-  source: join(work, "download.exe"), target: join(work, "new.exe"), oldExe: join(work, "old.exe"),
-  script: join(work, "install.vbs"), ready: join(work, "ready"), proceed: join(work, "go"),
-  log: join(work, "install.log"), processId: process.pid
+  source: join(cacheDir, "download.exe"), target: join(appDir, "new.exe"), oldExe: join(appDir, "old.exe"),
+  script: join(appDir, "install.vbs"), ready: join(cacheDir, "ready"), proceed: join(cacheDir, "go"),
+  log: join(appDir, "install.log"), processId: process.pid
 };
 let child;
 let exited;
 try {
   writeFileSync(paths.source, "new version fixture");
   writeFileSync(paths.oldExe, "old version fixture");
-  // UTF-16 可让诊断运行在中文临时目录；生产路径策略仍由 updater 检查。
-  writeFileSync(paths.script, "﻿" + buildPortableInstallScript(paths), "utf16le");
+  writePortableInstallScript(paths);
   child = spawn("wscript.exe", ["//B", "//Nologo", paths.script], { windowsHide: true, stdio: "ignore" });
   let failure;
   child.on("error", (error) => { failure = error; });

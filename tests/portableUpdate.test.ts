@@ -1,7 +1,7 @@
 /** 模拟安装脚本交接：脚本未就绪、执行失败和超时不能让主程序退出。 */
 import { afterEach, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
-import { buildPortableInstallScript, preparePortableInstall, type PortableInstallPaths } from "../electron/portableUpdate";
+import { buildPortableInstallScript, isPortableInstallPathSafe, preparePortableInstall, type PortableInstallPaths } from "../electron/portableUpdate";
 
 const mocks = vi.hoisted(() => ({ spawn: vi.fn(), exists: vi.fn(), write: vi.fn() }));
 vi.mock("node:child_process", () => ({ spawn: mocks.spawn }));
@@ -18,13 +18,31 @@ const start = () => {
 };
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.resetAllMocks(); });
 
-it("retains old executables and quotes launch paths containing spaces", () => {
+it("retains old executables and launches by filename after switching directory", () => {
   const script = buildPortableInstallScript(paths);
   expect(script).not.toContain("DeleteFile");
   expect(script).not.toContain("f.Delete");
+  expect(script).toContain('sh.CurrentDirectory = "C:\\My App"');
+  expect(script).toContain('sh.Run """new.exe""", 1, False');
+  expect(script).toContain('sh.Run """old.exe""", 1, False');
   expect(script).toContain('sh.Run """C:\\My App\\new.exe""", 1, False');
   expect(script).toContain('sh.Run """C:\\My App\\old.exe""", 1, False');
   expect(script.indexOf("fso.CopyFile")).toBeLessThan(script.indexOf("CreateTextFile"));
+});
+it("keeps Chinese program-directory paths in the script", () => {
+  const script = buildPortableInstallScript({
+    ...paths,
+    source: "C:\\缓存\\new.exe",
+    target: "C:\\桌面\\My App\\new.exe",
+    oldExe: "C:\\桌面\\My App\\old.exe"
+  });
+  expect(script).toContain('fso.CopyFile "C:\\缓存\\new.exe", "C:\\桌面\\My App\\new.exe", True');
+  expect(script).toContain('sh.CurrentDirectory = "C:\\桌面\\My App"');
+});
+it("allows non-ASCII paths but rejects quotes or newlines", () => {
+  expect(isPortableInstallPathSafe("C:\\桌面\\TODO-Portable-0.2.30.exe")).toBe(true);
+  expect(isPortableInstallPathSafe('C:\\a"b.exe')).toBe(false);
+  expect(isPortableInstallPathSafe("C:\\a\nb.exe")).toBe(false);
 });
 it("waits for readiness before sending exit permission", async () => {
   const { promise } = start();
