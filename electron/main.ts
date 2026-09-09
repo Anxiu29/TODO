@@ -9,12 +9,11 @@
  *
  * 启动顺序：configureUserDataPath → requestSingleInstanceLock → app.whenReady → boot
  */
-import { app, BrowserWindow, globalShortcut, ipcMain, Menu, nativeImage, screen, Tray } from "electron";
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, Menu, nativeImage, screen, Tray } from "electron";
 import { join } from "node:path";
 import {
   clampBoundsToWorkArea,
   defaultWidgetBoundsInWorkArea,
-  isPointInBounds,
   WIDGET_MIN_HEIGHT,
   WIDGET_MIN_WIDTH,
   type WorkArea
@@ -37,7 +36,7 @@ import { attachRevealOnce, centeredOnPrimaryWorkArea, openOrFocusAuxWindow, tran
 import { TodoStore } from "./todoStore";
 import { setupAutoUpdater } from "./updater";
 import { normalizeShortcut, shortcutCandidateList } from "../src/data/shortcut";
-import { normalizeTodoTags } from "../src/types/todo";
+import { resolveAddTodoPrefillTags, serializeAddTodoTagsQuery } from "../src/types/todo";
 import type {
   EditTodoPayload,
   QuickAddFocusPayload,
@@ -73,12 +72,7 @@ let pinnedFloat = false;
 let temporaryFloat = false;
 /** 桌面附着失败时的延迟重试定时器 */
 let desktopAttachTimer: NodeJS.Timeout | undefined;
-/**
- * 桌面固定下用光标位置探测「鼠标已在挂件上」——
- * DefView 挡点击时 mouseEnter 不会触发，靠轮询提前清穿透/唤醒。
- */
-let desktopInputWatchTimer: NodeJS.Timeout | undefined;
-/** 用户点了最小化/隐藏；为 true 时禁止光标巡检把窗口又 show 回来 */
+/** 用户主动隐藏；后台附着与交互修复不得重新显示窗口。 */
 let widgetUserHidden = false;
 /** 点击进入拖动准备后，如果没有真的移动，自动恢复桌面附着 */
 let dragAttachFallbackTimer: NodeJS.Timeout | undefined;
@@ -107,10 +101,12 @@ const isAddTodoWindowOpen = (): boolean => isWindowVisible(addTodoWindow);
 const isCalendarOrSettingsOpen = (): boolean =>
   isWindowVisible(calendarWindow) || isWindowVisible(settingsWindow);
 
-/** 添加 / 日历 / 设置任一打开时，挂件不要 ShowWindow 抢层级 */
-const shouldSkipWidgetRaise = (): boolean => isAddTodoWindowOpen() || isCalendarOrSettingsOpen();
+/** 任一辅助窗口打开时，挂件不应干扰其层级与输入。 */
+// 编辑窗同样需要保护，否则鼠标经过挂件会干扰正在输入的内容。
+const shouldSkipWidgetRaise = (): boolean =>
+  isAddTodoWindowOpen() || isCalendarOrSettingsOpen() || isWindowVisible(editTodoWindow);
 
-/** 挂件抢焦点前确认不会盖住添加/日历/设置 */
+/** 用户明确唤出挂件时也先保护辅助窗口的输入。 */
 const focusWidgetIfSafe = (): void => {
   if (!widgetWindow || shouldSkipWidgetRaise()) {
     return;
@@ -188,12 +184,9 @@ const broadcastFloatState = (): void => {
   }
 };
 
-/** 用户主动显示挂件时清除「已最小化」标记，并恢复桌面可点巡检 */
+/** 只有用户主动显示挂件才清除隐藏标记。 */
 const revealWidgetFromUserHide = (): void => {
   widgetUserHidden = false;
-  if (isDesktopPinnedMode() && !isFloating()) {
-    startDesktopInputWatch();
-  }
 };
 
 /** 显示挂件窗口：置顶/普通模式聚焦显示，桌面固定模式仅 showInactive 避免抢焦点。 */
@@ -268,65 +261,18 @@ const returnWidgetToDesktop = async (): Promise<void> => {
   await applyWidgetDisplayMode();
 };
 
-/** 停止桌面固定下的光标可点性巡检 */
-const stopDesktopInputWatch = (): void => {
-  clearInterval(desktopInputWatchTimer);
-  desktopInputWatchTimer = undefined;
-};
-
-/**
- * 轮询光标是否落在挂件矩形内。
- * 落在内部时清穿透并 show，避免 Win11 桌面层挡住后永远收不到 mouseEnter。
- */
-const startDesktopInputWatch = (): void => {
-  stopDesktopInputWatch();
-  if (!widgetWindow || isFloating() || !isDesktopPinnedMode()) {
-    return;
-  }
-
-  desktopInputWatchTimer = setInterval(() => {
-    if (!widgetWindow || widgetWindow.isDestroyed() || isFloating() || !isDesktopPinnedMode()) {
-      stopDesktopInputWatch();
-      return;
-    }
-
-    // 用户已最小化：绝不能 showInactive，否则点最小化会立刻弹回
-    if (widgetUserHidden || !widgetWindow.isVisible()) {
-      return;
-    }
-
-    if (shouldSkipWidgetRaise()) {
-      return;
-    }
-
-    const point = screen.getCursorScreenPoint();
-    const bounds = widgetWindow.getBounds();
-    if (!isPointInBounds(point, bounds)) {
-      return;
-    }
-
-    raiseDesktopWidgetForInput(widgetWindow);
-    if (!widgetWindow.isFocused()) {
-      widgetWindow.showInactive();
-    }
-  }, 80);
-};
-
-/** 桌面固定模式下，鼠标进入后预先激活窗口，避免第一次点击只用于激活而不触发按钮。 */
+/** 鼠标进入仅修复点击样式；显示与聚焦只由用户明确唤出或系统点击激活。 */
 const wakeWidgetForInteraction = (): void => {
   if (!widgetWindow || isFloating() || !isDesktopPinnedMode() || widgetUserHidden) {
     return;
   }
 
-  // 添加/日历/设置打开时勿抢焦点或层级
+  // 辅助窗口打开时不修复挂件交互，避免跨窗口操作互相干扰。
   if (shouldSkipWidgetRaise()) {
     return;
   }
 
   raiseDesktopWidgetForInput(widgetWindow);
-  widgetWindow.setIgnoreMouseEvents(false);
-  widgetWindow.show();
-  focusWidgetIfSafe();
 };
 
 /** 桌面固定失败时降级为可交互的普通窗口，避免黑边/无法点击。 */
@@ -335,7 +281,6 @@ const applyNormalWidgetFallback = (bounds?: WindowBounds): void => {
 
   clearTimeout(dragAttachFallbackTimer);
   widgetDragDetached = false;
-  stopDesktopInputWatch();
   detachWindowFromDesktop(widgetWindow);
   if (bounds) {
     widgetWindow.setBounds(bounds);
@@ -370,12 +315,10 @@ const attachDesktopWidget = async (): Promise<boolean> => {
       widgetWindow.showInactive();
     }
     raiseDesktopWidgetForInput(widgetWindow);
-    startDesktopInputWatch();
     widgetWindow.webContents.send("desktop-attach:result", true);
     return true;
   }
 
-  stopDesktopInputWatch();
   detachWindowFromDesktop(widgetWindow);
   widgetWindow.setMinimizable(true);
   widgetWindow.setSkipTaskbar(false);
@@ -435,7 +378,6 @@ const applyWidgetDisplayMode = async (): Promise<void> => {
   if (isFloating()) {
     clearTimeout(dragAttachFallbackTimer);
     widgetDragDetached = false;
-    stopDesktopInputWatch();
     detachWindowFromDesktop(widgetWindow);
     widgetWindow.setBounds(bounds);
     widgetWindow.setSkipTaskbar(true);
@@ -451,7 +393,6 @@ const applyWidgetDisplayMode = async (): Promise<void> => {
   if (!isDesktopPinnedMode()) {
     clearTimeout(dragAttachFallbackTimer);
     widgetDragDetached = false;
-    stopDesktopInputWatch();
     detachWindowFromDesktop(widgetWindow);
     widgetWindow.setBounds(bounds);
     widgetWindow.setAlwaysOnTop(false);
@@ -539,7 +480,11 @@ const persistWidgetBounds = (): void => {
   clearTimeout(saveBoundsTimer);
   saveBoundsTimer = setTimeout(() => {
     if (!widgetWindow) return;
-    store.updateWidgetBounds(widgetWindow.getBounds());
+    try {
+      store.updateWidgetBounds(widgetWindow.getBounds());
+    } catch {
+      // 保存层已经报告错误，计时器回调不能再抛成未捕获异常。
+    }
   }, 300);
 };
 
@@ -603,7 +548,7 @@ const createWidgetWindow = async (): Promise<void> => {
 
     clearTimeout(resizeReattachTimer);
     resizeReattachTimer = setTimeout(() => {
-      if (!widgetWindow || isFloating() || !isDesktopPinnedMode()) {
+      if (!widgetWindow || widgetUserHidden || isFloating() || !isDesktopPinnedMode()) {
         return;
       }
 
@@ -624,7 +569,8 @@ const createWidgetWindow = async (): Promise<void> => {
     }
 
     setTimeout(() => {
-      if (!widgetWindow || !isFloating()) return;
+      // 用户可能已在延迟期间点了隐藏，旧恢复任务不得将窗口再次弹出。
+      if (!widgetWindow || widgetUserHidden || !isFloating()) return;
       widgetWindow.restore();
       widgetWindow.showInactive();
       widgetWindow.moveTop();
@@ -636,6 +582,8 @@ const createWidgetWindow = async (): Promise<void> => {
     }
 
     setTimeout(() => {
+      // 失焦后用户可能已经切回挂件，过期回调不能再把它贴回桌面。
+      if (!widgetWindow || widgetWindow.isFocused()) return;
       void returnWidgetToDesktop();
     }, 120);
   });
@@ -665,10 +613,11 @@ const sendQuickAddFocus = (): void => {
 /**
  * 创建或聚焦快捷添加窗口；不销毁实例以便复用。
  * 普通顶层窗，与日历一样不置顶、失焦不关；关闭仅由标题栏、Escape 或提交成功触发。
- * options.tags：挂件在某标签筛选下「添加」时传入，新建待办会自动带上。
+ * options.tags 显式传入（含空数组=全部）优先；未传则沿用 settings.tagFilter
+ * （重启后筛选尚未水合、或全局快捷键唤起时也能带上当前标签）。
  */
 const createAddTodoWindow = async (options?: { tags?: string[] }): Promise<void> => {
-  pendingAddTodoTags = normalizeTodoTags(options?.tags);
+  pendingAddTodoTags = resolveAddTodoPrefillTags(options, store.getSettings().tagFilter);
 
   if (addTodoWindow) {
     addTodoWindow.setAlwaysOnTop(false);
@@ -696,7 +645,8 @@ const createAddTodoWindow = async (options?: { tags?: string[] }): Promise<void>
     addTodoWindow?.focus();
     sendQuickAddFocus();
   });
-  await loadRenderer(addTodoWindow, "add");
+  // tags 写入 URL，首屏不必等 IPC；复用窗口时仍靠 sendQuickAddFocus
+  await loadRenderer(addTodoWindow, "add", { tags: serializeAddTodoTagsQuery(pendingAddTodoTags) });
   setTimeout(revealOnce, 1000);
 };
 
@@ -820,6 +770,7 @@ const registerIpc = (): void => {
   ipcMain.handle("windows:openAddTodo", (_event, options?: { tags?: string[] }) =>
     createAddTodoWindow(options)
   );
+  ipcMain.handle("windows:getPendingAddTodoTags", () => pendingAddTodoTags);
   ipcMain.handle("windows:openCalendar", () => createCalendarWindow());
   ipcMain.handle("windows:openSettings", () => createSettingsWindow());
   ipcMain.handle("windows:openEditTodo", (_event, todoId: string) => {
@@ -948,16 +899,17 @@ const registerIpc = (): void => {
       void attachDesktopWidget();
     }
   });
-  /** 最小化：隐藏挂件；桌面固定下须停光标巡检，否则会立刻被 show 回来 */
+  /** 最小化由用户明确隐藏，附着重试必须尊重此状态。 */
   ipcMain.handle("widget:minimize", () => {
     widgetUserHidden = true;
-    stopDesktopInputWatch();
     widgetWindow?.hide();
   });
 }
 
 /** 两类全局快捷键：唤起添加窗口 / 临时显示挂件 */
 type ShortcutKind = "quickAdd" | "showWidget";
+/** 记录实际注册成功的组合；设置文件中的值不代表系统注册一定成功。 */
+const activeShortcuts: Partial<Record<ShortcutKind, string>> = {};
 
 const getShortcutValue = (kind: ShortcutKind): string =>
   kind === "quickAdd" ? store.getSettings().shortcut : store.getSettings().showWidgetShortcut;
@@ -988,6 +940,11 @@ const runShortcutAction = (kind: ShortcutKind): void => {
 const registerShortcut = (kind: ShortcutKind, requestedShortcut?: string): ShortcutRegistrationResult => {
   const preferredShortcut = requestedShortcut ? normalizeShortcut(requestedShortcut) : getShortcutValue(kind);
   const shortcutCandidates = shortcutCandidateList(preferredShortcut, Boolean(requestedShortcut));
+  const previous = activeShortcuts[kind];
+  // 同一个组合无需注销重注册，也无需再次写盘。
+  if (previous === preferredShortcut) {
+    return { settings: store.getSettings(), registered: true, requestedShortcut: preferredShortcut, activeShortcut: previous };
+  }
 
   for (const shortcut of shortcutCandidates) {
     let registered = false;
@@ -1000,7 +957,15 @@ const registerShortcut = (kind: ShortcutKind, requestedShortcut?: string): Short
     }
 
     if (registered) {
-      setShortcutValue(kind, shortcut);
+      try {
+        if (shortcut !== getShortcutValue(kind)) setShortcutValue(kind, shortcut);
+      } catch (error) {
+        // 保存失败只撤销新注册；原快捷键一直有效，避免设置回滚后按键仍执行新组合。
+        globalShortcut.unregister(shortcut);
+        throw error;
+      }
+      if (previous) globalShortcut.unregister(previous);
+      activeShortcuts[kind] = shortcut;
       if (shortcut !== preferredShortcut) {
         console.warn(`Preferred shortcut unavailable. Registered fallback shortcut: ${shortcut}`);
       }
@@ -1014,26 +979,25 @@ const registerShortcut = (kind: ShortcutKind, requestedShortcut?: string): Short
   }
 
   console.warn(`Failed to register shortcuts: ${shortcutCandidates.join(", ")}`);
-  if (requestedShortcut) {
-    registerShortcut(kind);
-  }
   return {
     settings: store.getSettings(),
     registered: false,
     requestedShortcut: preferredShortcut,
-    activeShortcut: getShortcutValue(kind)
+    activeShortcut: previous ?? ""
   };
 };
 
 const registerGlobalShortcuts = (): void => {
   globalShortcut.unregisterAll();
+  delete activeShortcuts.quickAdd;
+  delete activeShortcuts.showWidget;
   registerShortcut("quickAdd");
   registerShortcut("showWidget");
 };
 
 /**
  * 用户修改快捷键时调用。
- * 先检查是否与另一类快捷键冲突，再 unregisterAll 后分别重注册两个快捷键。
+ * 先保留旧组合尝试新组合，保存成功后才注销旧组合；另一类快捷键全程不受影响。
  */
 const updateShortcut = (kind: ShortcutKind, shortcut: string): ShortcutRegistrationResult => {
   const requestedShortcut = normalizeShortcut(shortcut);
@@ -1047,9 +1011,7 @@ const updateShortcut = (kind: ShortcutKind, shortcut: string): ShortcutRegistrat
     };
   }
 
-  globalShortcut.unregisterAll();
   const result = registerShortcut(kind, requestedShortcut);
-  registerShortcut(otherKind);
   broadcastSettings();
   return result;
 };
@@ -1073,7 +1035,8 @@ const createTray = (): void => {
 
 /** 应用启动：初始化存储、窗口、全局快捷键与托盘。 */
 const boot = async (): Promise<void> => {
-  store = new TodoStore();
+  // 所有保存入口（包括后台位置保存）共用可见错误提示，不能只在控制台失败。
+  store = new TodoStore(undefined, (message) => dialog.showErrorBox("待办保存失败", message));
   pinnedFloat = false;
   syncLoginSetting();
   dailyRefreshWatch.start(store.refreshDaily().today);
@@ -1081,11 +1044,8 @@ const boot = async (): Promise<void> => {
   await createWidgetWindow();
   registerGlobalShortcuts();
   createTray();
-  setupAutoUpdater({
-    onUpdateAvailable: () => {
-      void createSettingsWindow();
-    }
-  });
+  // 发现更新只广播状态；开机自启弹设置窗会挡桌面，改由挂件设置按钮红点提示
+  setupAutoUpdater();
 };
 
 // 须在 requestSingleInstanceLock / TodoStore 之前执行，见 appPaths.ts
@@ -1101,7 +1061,11 @@ if (!gotLock) {
     showWidgetWindow();
   });
 
-  app.whenReady().then(boot);
+  // 数据读取失败时停止启动，绝不注册快捷键后把空设置写回原文件。
+  app.whenReady().then(boot).catch((error: unknown) => {
+    dialog.showErrorBox("无法启动桌面待办", error instanceof Error ? error.message : String(error));
+    app.quit();
+  });
 }
 
 app.on("activate", () => {
@@ -1111,11 +1075,11 @@ app.on("activate", () => {
 });
 
 app.on("will-quit", () => {
+  clearTimeout(saveBoundsTimer);
   clearTimeout(desktopAttachTimer);
   clearTimeout(dragAttachFallbackTimer);
   clearTimeout(resizeReattachTimer);
   dailyRefreshWatch.stop();
-  stopDesktopInputWatch();
   globalShortcut.unregisterAll();
 });
 

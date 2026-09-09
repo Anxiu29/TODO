@@ -1,15 +1,24 @@
 /**
  * 完成日历窗口（?view=calendar）。
  *
- * 左侧月历格显示每日完成数量，右侧展示选中日期的完成列表（含父任务下的步骤明细与用时）。
+ * 左侧月历格显示每日完成数量，右侧展示选中日期的完成列表
+ *（用时/预计、添加与完成时刻、标签、等待记录、步骤明细）。
  * 支持编辑标题、恢复为进行中；待办变更时通过 onTodosChanged 自动刷新。
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import type React from "react";
 import { CloseWindowButton } from "./CloseWindowButton";
 import { getCalendarWeekCount, getLocalMonthDays, getMondayFirstWeekday } from "./data/calendar";
-import { formatStepDaysLabel, todayKey as toDateKey } from "./data/todoStore";
-import { formatDate } from "./todoFormat";
+import { daysSinceCreatedOn, formatStepDaysLabel, todayKey as toDateKey } from "./data/todoStore";
+import {
+  formatCompletedAt,
+  formatCompletedDays,
+  formatCreatedAt,
+  formatDate,
+  formatWaitDate,
+  formatWaitSpan
+} from "./todoFormat";
+import { TodoTagChips } from "./TodoTags";
 import type { Todo, TodoCalendarDay } from "./types/todo";
 import { useEscapeToClose } from "./useEscapeToClose";
 
@@ -25,6 +34,54 @@ type WheelSelectProps = {
   onChange: (value: number) => void;
   ariaLabel: string;
 };
+
+type CompletedTodoMetaProps = {
+  todo: Todo;
+  /** 日历选中日 YYYY-MM-DD，与分组键一致，用于计算用时 */
+  completedDate: string;
+};
+
+/** 完成事项只读摘要：用时、预计、时刻、标签、等待记录 */
+function CompletedTodoMeta({ todo, completedDate }: CompletedTodoMetaProps): React.ReactElement {
+  const usedDays = daysSinceCreatedOn(todo.createdAt, completedDate);
+  const overdue = todo.dueDays !== undefined && usedDays > todo.dueDays;
+  const waitHistory = [...(todo.waitHistory ?? [])].reverse();
+
+  return (
+    <div className="detail-item-meta">
+      <div className="detail-item-days-row">
+        <span className={`detail-item-duration${overdue ? " overdue" : ""}`}>
+          {formatCompletedDays(todo.createdAt, completedDate)}
+        </span>
+        {todo.dueDays ? <span className="detail-item-due">预计 {todo.dueDays} 天</span> : null}
+        <span className="detail-item-rating" aria-label={`紧急评分 ${todo.rating}`}>
+          {todo.rating} 星
+        </span>
+      </div>
+      <p className="detail-item-times">
+        <span>添加 {formatCreatedAt(todo.createdAt)}</span>
+        {todo.completedAt ? <span>完成 {formatCompletedAt(todo.completedAt)}</span> : null}
+      </p>
+      <TodoTagChips tags={todo.tags} />
+      {waitHistory.length > 0 ? (
+        <div className="detail-wait-history" aria-label="等待记录">
+          <div className="detail-wait-title">等待记录</div>
+          <ul>
+            {waitHistory.map((record, index) => (
+              <li key={`${record.startedAt}-${record.endedAt}-${index}`}>
+                <span className="detail-wait-range">
+                  {formatWaitDate(record.startedAt)} – {formatWaitDate(record.endedAt)}
+                </span>
+                <span className="detail-wait-span">{formatWaitSpan(record.startedAt, record.endedAt)}</span>
+                {record.reason ? <span className="detail-wait-reason">{record.reason}</span> : null}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 /** 滚轮选择器：展开后滚轮仅浏览选项，点击后才确认切换 */
 function WheelSelect({ value, options, onChange, ariaLabel }: WheelSelectProps): React.ReactElement {
@@ -326,6 +383,8 @@ export default function CalendarView(): React.ReactElement {
                       </button>
                     ) : null}
                   </div>
+                  {/* 用时按完成日计算；标签与等待记录只读，步骤仍单独列出 */}
+                  <CompletedTodoMeta todo={todo} completedDate={selectedDate} />
                   {/* 完成记录附带步骤明细，只读展示勾选状态与用时 */}
                   {todo.subtasks.length > 0 ? (
                     <ul className="detail-subtasks" aria-label={`${todo.title} 的步骤`}>

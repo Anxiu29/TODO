@@ -30,7 +30,9 @@ const FindWindowW = user32.func("HWND __stdcall FindWindowW(str16 _lpClassName, 
 const FindWindowExW = user32.func(
   "HWND __stdcall FindWindowExW(HWND hWndParent, HWND hWndChildAfter, str16 lpszClass, str16 lpszWindow)"
 );
-const GetParent = user32.func("HWND __stdcall GetParent(HWND hWnd)");
+// GetParent 对弹出窗会返回 Owner；GA_PARENT 才能区分真实父子关系。
+const GetAncestor = user32.func("HWND __stdcall GetAncestor(HWND hWnd, uint32 gaFlags)");
+const GetDesktopWindow = user32.func("HWND __stdcall GetDesktopWindow()");
 const GetWindow = user32.func("HWND __stdcall GetWindow(HWND hWnd, uint32 uCmd)");
 const SetParent = user32.func("HWND __stdcall SetParent(HWND hWndChild, HWND hWndNewParent)");
 const ShowWindow = user32.func("int __stdcall ShowWindow(HWND hWnd, int nCmdShow)");
@@ -45,6 +47,7 @@ const SendMessageTimeoutW = user32.func(
 const WM_SPAWN_WORKER = 0x052c;
 const SW_SHOWNA = 8;
 const GW_OWNER = 4;
+const GA_PARENT = 1;
 /** 对顶层窗口设置 Owner（文档名含 PARENT，实际改的是 owner） */
 const GWLP_HWNDPARENT = -8;
 const GWL_EXSTYLE = -20;
@@ -78,6 +81,12 @@ const isSameHwnd = (left: Hwnd, right: Hwnd): boolean => {
   } catch {
     return left === right;
   }
+};
+
+/** 顶层窗口的祖先为系统桌面，将其归一为无父窗，避免误判为 SetParent 子窗。 */
+const getActualParent = (hwnd: Hwnd): Hwnd => {
+  const parent = GetAncestor(hwnd, GA_PARENT);
+  return isSameHwnd(parent, GetDesktopWindow()) ? null : parent;
 };
 
 const spawnDesktopWorker = (progman: Hwnd, wParam: number, lParam: number): void => {
@@ -171,11 +180,10 @@ const findDesktopAttachTarget = (strategy: DesktopAttachStrategy): AttachTarget 
     return null;
   };
 
-  if (strategy === "wallpaper-app") {
-    const existing = resolve();
-    if (existing) {
-      return existing;
-    }
+  // 桌面宿主已存在时不再发送创建 WorkerW 的私有消息，减少重附着时的 Shell 扰动。
+  const existing = resolve();
+  if (existing) {
+    return existing;
   }
 
   spawnWorkersForStrategy(progman, strategy);
@@ -209,7 +217,7 @@ export const isWindowDesktopChild = (window: BrowserWindow): boolean => {
   }
 
   try {
-    return Boolean(GetParent(readHwnd(window)));
+    return Boolean(getActualParent(readHwnd(window)));
   } catch {
     return false;
   }
@@ -222,7 +230,7 @@ export const isWindowDesktopAttached = (window: BrowserWindow): boolean => {
 
   try {
     const hwnd = readHwnd(window);
-    const parent = GetParent(hwnd);
+    const parent = getActualParent(hwnd);
     if (parent) {
       return true;
     }
@@ -279,7 +287,7 @@ export const raiseDesktopWidgetForInput = (window: BrowserWindow): void => {
     const hwnd = readHwnd(window);
     ensureInteractiveWindowStyle(hwnd);
     window.setIgnoreMouseEvents(false);
-    ShowWindow(hwnd, SW_SHOWNA);
+    // 修复样式不得显示、抬升或激活窗口，避免鼠标经过时干扰 Win+R 等前台窗口。
   } catch {
     // ignore
   }
@@ -309,14 +317,14 @@ export const attachWindowToDesktop = async (
 
     // 已用同一方式附着则跳过
     if (target.method === "setparent") {
-      const currentParent = GetParent(targetHwnd);
+      const currentParent = getActualParent(targetHwnd);
       if (isSameHwnd(currentParent, target.hwnd)) {
         ensureInteractiveWindowStyle(targetHwnd);
         return { ok: true, changed: false, host: target.host };
       }
     } else {
       const currentOwner = GetWindow(targetHwnd, GW_OWNER);
-      if (isSameHwnd(currentOwner, target.hwnd) && !GetParent(targetHwnd)) {
+      if (isSameHwnd(currentOwner, target.hwnd) && !getActualParent(targetHwnd)) {
         ensureInteractiveWindowStyle(targetHwnd);
         return { ok: true, changed: false, host: target.host };
       }

@@ -9,6 +9,8 @@ import type React from "react";
 import { CloseWindowButton } from "./CloseWindowButton";
 import { useCardWindowHeight } from "./useCardWindowHeight";
 import { useEscapeToClose } from "./useEscapeToClose";
+import { shouldSubmitOnEnter } from "./data/formSubmission";
+import { useFormSubmission } from "./useFormSubmission";
 
 const initialTodoId = new URLSearchParams(window.location.search).get("id");
 
@@ -21,6 +23,7 @@ export default function EditTodoWindow(): React.ReactElement {
   const todoIdRef = useRef(todoId);
   todoIdRef.current = todoId;
   useCardWindowHeight(title, inputRef, cardRef);
+  const submission = useFormSubmission();
   useEscapeToClose();
 
   /** 按 id 从快照灌入标题；待办已删则关窗 */
@@ -71,8 +74,11 @@ export default function EditTodoWindow(): React.ReactElement {
     const value = title.replace(/\s+/g, " ").trim();
     if (!value) return;
 
-    await window.todoApi.updateTodo(todoId, { title: value });
-    await window.todoApi.closeCurrentWindow();
+    // 锁覆盖整个请求，失败时不清空草稿。
+    await submission.submit(async () => {
+      await window.todoApi.updateTodo(todoId, { title: value });
+      await window.todoApi.closeCurrentWindow();
+    });
   };
 
   return (
@@ -92,17 +98,18 @@ export default function EditTodoWindow(): React.ReactElement {
           value={title}
           onChange={(event) => setTitle(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
+            if (shouldSubmitOnEnter(event.nativeEvent)) {
               event.preventDefault();
               event.currentTarget.form?.requestSubmit();
             }
           }}
           placeholder="待办标题"
           aria-label="待办标题"
-          disabled={!ready}
+          disabled={!ready || submission.saving}
         />
+        {submission.error ? <p role="alert">{submission.error}</p> : null}
         <div className="quick-add-actions no-drag">
-          <button type="submit" className="quick-add-confirm" disabled={!ready || !title.trim()}>
+          <button type="submit" className="quick-add-confirm" disabled={submission.saving || !ready || !title.trim()}>
             保存
           </button>
         </div>

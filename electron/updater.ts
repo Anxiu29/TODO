@@ -1,6 +1,6 @@
-import { spawn } from "node:child_process";
-import { writeFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
+import { buildPortableInstallScript, preparePortableInstall } from "./portableUpdate";
 import { app, BrowserWindow } from "electron";
 import electronUpdater from "electron-updater";
 import type { UpdateDownloadedEvent, UpdateInfo } from "electron-updater";
@@ -21,13 +21,11 @@ let currentStatus: UpdateStatus = { state: "idle" };
 let portableDownloadedFile: string | null = null;
 /** 同一版本只自动打开一次设置页，避免反复打扰 */
 let promptedAvailableVersion: string | null = null;
-/** 当前更新源；检查失败时从 gitee 切到 github 一次 */
-let activeFeed: "gitee" | "github" = "gitee";
-/** 本轮检查是否已尝试过 GitHub 回退，避免 error 事件循环重试 */
-let githubFallbackAttempted = false;
+/** 检查共享同一个 Promise，避免重复点击或事件回调并发切换更新源。 */
+let checkInFlight: Promise<UpdateStatus> | undefined;
 
 type SetupOptions = {
-  /** 发现新版本且尚未提示过时调用（例如打开设置页展示更新日志） */
+  /** 发现新版本且尚未提示过时调用；不要在这里弹窗（开机自启会挡桌面） */
   onUpdateAvailable?: (version: string) => void;
 };
 
@@ -65,7 +63,6 @@ export const getUpdateStatus = (): UpdateStatus => currentStatus;
 
 /** 切换更新源；setFeedURL 后需重新设 channel，否则便携版可能读错 yml */
 const applyUpdateFeed = (feed: "gitee" | "github"): void => {
-  activeFeed = feed;
   if (feed === "gitee") {
     autoUpdater.setFeedURL({ provider: "generic", url: GITEE_FEED_URL });
   } else {
@@ -76,41 +73,32 @@ const applyUpdateFeed = (feed: "gitee" | "github"): void => {
   }
 };
 
-export const checkForUpdates = async (): Promise<UpdateStatus> => {
+/** 一次检查按顺序尝试两个源；只由 Promise 失败驱动回退。 */
+const runUpdateCheck = async (): Promise<UpdateStatus> => {
+  for (const feed of ["gitee", "github"] as const) {
+    try {
+      applyUpdateFeed(feed);
+      broadcastStatus({ state: "checking" });
+      await autoUpdater.checkForUpdates();
+      return currentStatus;
+    } catch (error) {
+      if (feed === "github") broadcastStatus({ state: "error", message: error instanceof Error ? error.message : "检查更新失败" });
+    }
+  }
+  return currentStatus;
+};
+
+/** 检查期间复用请求，下载中或已下载时保留安装状态。 */
+export const checkForUpdates = (): Promise<UpdateStatus> => {
   if (!app.isPackaged) {
     const status: UpdateStatus = { state: "error", message: "开发模式下无法检查更新" };
     broadcastStatus(status);
-    return status;
+    return Promise.resolve(status);
   }
-
-  githubFallbackAttempted = false;
-  applyUpdateFeed("gitee");
-
-  try {
-    broadcastStatus({ state: "checking" });
-    await autoUpdater.checkForUpdates();
-    return currentStatus;
-  } catch {
-    // Promise 拒绝时立刻回退；异步 error 事件里也会再兜一层
-    if (!githubFallbackAttempted) {
-      githubFallbackAttempted = true;
-      applyUpdateFeed("github");
-      try {
-        broadcastStatus({ state: "checking" });
-        await autoUpdater.checkForUpdates();
-        return currentStatus;
-      } catch (fallbackError) {
-        const message =
-          fallbackError instanceof Error ? fallbackError.message : "检查更新失败";
-        const status: UpdateStatus = { state: "error", message };
-        broadcastStatus(status);
-        return status;
-      }
-    }
-    const status: UpdateStatus = { state: "error", message: "检查更新失败" };
-    broadcastStatus(status);
-    return status;
-  }
+  if (checkInFlight) return checkInFlight;
+  if (currentStatus.state === "downloading" || currentStatus.state === "downloaded") return Promise.resolve(currentStatus);
+  checkInFlight = Promise.resolve().then(runUpdateCheck).finally(() => { checkInFlight = undefined; });
+  return checkInFlight;
 };
 
 /** 用户确认后再下载；需先处于 available 状态 */
@@ -139,6 +127,8 @@ export const downloadUpdate = async (): Promise<UpdateStatus> => {
 
 /** 用户选择稍后：保留版本信息但清空日志打扰，回到 idle */
 export const dismissUpdate = (): UpdateStatus => {
+  // 稍后仅关闭可用更新提示，不能清掉正在下载或等待安装的状态。
+  if (currentStatus.state !== "available") return currentStatus;
   if (currentStatus.state === "available") {
     promptedAvailableVersion = currentStatus.version;
   }
@@ -150,112 +140,50 @@ export const dismissUpdate = (): UpdateStatus => {
 /** 路径须为可打印 ASCII；VBS/环境变量对非 ASCII 文件名不可靠 */
 const isCmdSafePath = (value: string): boolean => /^[\x20-\x7e]+$/.test(value);
 
-/** VBS 双引号字符串转义 */
-const vbsQuote = (value: string): string => `"${value.replace(/"/g, '""')}"`;
+/** 避免多次点击同时启动多个安装脚本。 */
+let portableInstalling = false;
 
-/**
- * 便携版安装：只写纯 ASCII 的 .vbs，用 wscript 静默执行（不经过 cmd/powershell）。
- *
- * 踩过的坑：
- * 1) 直接 spawn 再 quit → 被 Electron Job Object 杀掉
- * 2) 中文文件名在 process.env 里会乱码
- * 3) `start /min`、隐藏 cmd 里再调 powershell，仍会弹出/残留控制台窗口
- * 4) 清理只删 TODO-Portable-*.exe，不扫目录下全部 exe
- */
-const installPortableUpdate = (): void => {
+/** 先复制并等待脚本就绪再退出；任何准备失败都保留当前程序和旧版 exe。 */
+const installPortableUpdate = async (): Promise<void> => {
+  if (portableInstalling) return;
   const oldExe = process.env.PORTABLE_EXECUTABLE_FILE;
   const sourceExe = portableDownloadedFile;
-
-  if (!oldExe || !sourceExe) {
-    broadcastStatus({ state: "error", message: "未找到已下载的便携版更新文件" });
+  if (!oldExe || !sourceExe || currentStatus.state !== "downloaded") {
+    broadcastStatus({ state: "error", message: "请先完成新版下载" });
     return;
   }
-
-  const targetDir = dirname(oldExe);
-  const finalExe = join(targetDir, basename(sourceExe));
-  const keepName = basename(finalExe);
-  const logPath = join(targetDir, ".update-portable.log");
-  const vbsPath = join(dirname(sourceExe), "install-portable-update.vbs");
-
-  for (const [label, path] of [
-    ["程序目录", targetDir],
-    ["下载缓存", sourceExe],
-    ["目标文件", finalExe],
-    ["日志", logPath],
-    ["启动器", vbsPath]
-  ] as const) {
-    if (!isCmdSafePath(path)) {
-      broadcastStatus({
-        state: "error",
-        message: `${label}路径含非 ASCII 字符，无法自动安装。请把程序放到英文目录，或手动用新版 exe 覆盖`
-      });
-      return;
-    }
-  }
-
-  // 全程 FileSystemObject + WScript.Shell，不创建任何控制台子系统进程
-  const vbsBody = [
-    "On Error Resume Next",
-    "Dim sh, fso, logFile, folder, f",
-    'Set sh = CreateObject("WScript.Shell")',
-    'Set fso = CreateObject("Scripting.FileSystemObject")',
-    `Set logFile = fso.OpenTextFile(${vbsQuote(logPath)}, 8, True)`,
-    'logFile.WriteLine Now & " start"',
-    "WScript.Sleep 3000",
-    `If Not fso.FileExists(${vbsQuote(sourceExe)}) Then`,
-    '  logFile.WriteLine Now & " pending missing"',
-    "  logFile.Close",
-    "  WScript.Quit 1",
-    "End If",
-    `fso.CopyFile ${vbsQuote(sourceExe)}, ${vbsQuote(finalExe)}, True`,
-    "If Err.Number <> 0 Then",
-    '  logFile.WriteLine Now & " copy failed: " & Err.Description',
-    "  logFile.Close",
-    "  WScript.Quit 1",
-    "End If",
-    'logFile.WriteLine Now & " copied"',
-    `Set folder = fso.GetFolder(${vbsQuote(targetDir)})`,
-    "For Each f In folder.Files",
-    '  If LCase(fso.GetExtensionName(f.Name)) = "exe" Then',
-    `    If Left(f.Name, 13) = "TODO-Portable" And f.Name <> ${vbsQuote(keepName)} Then`,
-    "      f.Delete True",
-    "    End If",
-    "  End If",
-    "Next",
-    'logFile.WriteLine Now & " cleaned"',
-    `sh.Run ${vbsQuote(finalExe)}, 1, False`,
-    'logFile.WriteLine Now & " started"',
-    "logFile.Close",
-    `fso.DeleteFile ${vbsQuote(vbsPath)}, True`,
-    ""
-  ].join("\r\n");
-
+  portableInstalling = true;
   try {
-    writeFileSync(logPath, `${new Date().toISOString()} launch-requested\n`, "utf8");
-    writeFileSync(vbsPath, vbsBody, "ascii");
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "写入更新启动器失败";
-    broadcastStatus({ state: "error", message });
-    return;
-  }
-
-  // //B 无窗口；不经过 cmd/powershell，避免控制台残留在任务栏
-  spawn("wscript.exe", ["//B", "//Nologo", vbsPath], {
-    detached: true,
-    stdio: "ignore",
-    windowsHide: true
-  }).unref();
-
-  setTimeout(() => {
+    const target = join(dirname(oldExe), basename(sourceExe));
+    // 相同文件名不能覆盖正在使用的旧版，确保始终可以回退。
+    if (resolve(target).toLowerCase() === resolve(oldExe).toLowerCase()) {
+      throw new Error("新版与旧版文件名相同，请手动安装；旧版未改动。");
+    }
+    if (![sourceExe, target, oldExe].every(isCmdSafePath)) {
+      throw new Error("路径含非 ASCII 字符，请手动安装新版；旧版未改动。");
+    }
+    const work = mkdtempSync(join(dirname(sourceExe), "install-"));
+    const paths = {
+      source: sourceExe, target, oldExe,
+      processId: process.pid,
+      script: join(work, "install.vbs"), log: join(dirname(oldExe), ".update-portable.log"),
+      ready: join(work, "ready"), proceed: join(work, "proceed")
+    };
+    writeFileSync(paths.script, buildPortableInstallScript(paths), "ascii");
+    await preparePortableInstall(paths);
     app.quit();
-  }, 1500);
+  } catch (error) {
+    broadcastStatus({ state: "error", message: error instanceof Error ? error.message : "更新安装准备失败" });
+  } finally {
+    portableInstalling = false;
+  }
 };
 
 export const quitAndInstallUpdate = (): void => {
   if (!app.isPackaged) return;
 
   if (isPortableApp()) {
-    installPortableUpdate();
+    void installPortableUpdate();
     return;
   }
 
@@ -308,22 +236,8 @@ export const setupAutoUpdater = (options: SetupOptions = {}): void => {
   });
 
   autoUpdater.on("error", (error) => {
-    // 仅在「检查」阶段从 Gitee 回退；下载失败不自动换源，避免状态错乱
-    if (
-      activeFeed === "gitee" &&
-      !githubFallbackAttempted &&
-      currentStatus.state === "checking"
-    ) {
-      githubFallbackAttempted = true;
-      console.warn(`Gitee 检查更新失败，回退 GitHub: ${error.message}`);
-      applyUpdateFeed("github");
-      void autoUpdater.checkForUpdates().catch((fallbackError: unknown) => {
-        const message =
-          fallbackError instanceof Error ? fallbackError.message : error.message;
-        broadcastStatus({ state: "error", message });
-      });
-      return;
-    }
+    // 检查中的错误交给 runUpdateCheck；事件里再次检查会抢占库内部尚未结束的 Promise。
+    if (checkInFlight) return;
     broadcastStatus({ state: "error", message: error.message });
   });
 

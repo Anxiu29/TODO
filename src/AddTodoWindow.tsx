@@ -3,7 +3,8 @@
  *
  * 可由挂件「添加」按钮或全局快捷键唤起。
  * 特点：Enter / 确认按钮提交后关闭、Escape 关闭；普通窗口，失焦保持打开、不置顶；
- * 再次按快捷键时通过 quick-add:focus 事件重新聚焦输入框；
+ * 再次唤起时通过 getPendingAddTodoTags 拉取 + quick-add:focus 同步预填标签
+ * （添加窗为 lazy 加载，仅靠 push 会在监听器挂上前丢失标签）；
  * 提交前可点选星级（默认五星）、可选预计天数；
  * 若从某标签筛选下打开则自动带上该标签；
  * 标题一行放不下时自动换行，窗口随内容增高。
@@ -15,10 +16,14 @@ import { CloseWindowButton } from "./CloseWindowButton";
 import { TodoTagChips } from "./TodoTags";
 import { useCardWindowHeight } from "./useCardWindowHeight";
 import { useEscapeToClose } from "./useEscapeToClose";
+import { shouldSubmitOnEnter } from "./data/formSubmission";
+import { useFormSubmission } from "./useFormSubmission";
 import {
   DUE_DAYS_MAX,
   DUE_DAYS_MIN,
   normalizeDueDays,
+  normalizeTodoTags,
+  parseAddTodoTagsQuery,
   TODO_RATING_DEFAULT,
   TODO_RATING_MAX,
   TODO_RATING_MIN
@@ -28,19 +33,20 @@ export default function AddTodoWindow(): React.ReactElement {
   const [title, setTitle] = useState("");
   /** 新建默认五星，可在提交前点选 */
   const [rating, setRating] = useState(TODO_RATING_DEFAULT);
-  /** 打开窗口时由主进程传入；挂件在标签筛选下添加会带上该标签 */
-  const [tags, setTags] = useState<string[]>([]);
+  /** 首屏先吃 URL；随后 pull / quick-add:focus 覆盖（窗口复用时 URL 可能是旧的） */
+  const [tags, setTags] = useState<string[]>(() => parseAddTodoTagsQuery(window.location.search));
   /** 预计天数草稿；空字符串表示不设置 */
   const [dueDaysDraft, setDueDaysDraft] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const cardRef = useRef<HTMLFormElement>(null);
   useCardWindowHeight(title, inputRef, cardRef);
+  const submission = useFormSubmission();
   useEscapeToClose();
 
   useEffect(() => {
-    /** 每次唤起：同步预填标签、恢复默认星级/天数，并延迟聚焦输入框 */
-    const focusInput = (payload?: { tags?: string[] }): void => {
-      setTags(Array.isArray(payload?.tags) ? payload.tags : []);
+    /** 同步预填标签、恢复默认星级/天数，并延迟聚焦输入框 */
+    const applyFocus = (nextTags: string[]): void => {
+      setTags(normalizeTodoTags(nextTags));
       setRating(TODO_RATING_DEFAULT);
       setDueDaysDraft("");
       window.setTimeout(() => {
@@ -49,9 +55,12 @@ export default function AddTodoWindow(): React.ReactElement {
       }, 0);
     };
 
-    focusInput();
+    // 主动拉取：添加窗 lazy 加载，ready-to-show 时监听器往往还没挂上，push 会丢
+    void window.todoApi.getPendingAddTodoTags().then(applyFocus);
 
-    const offFocus = window.todoApi.onQuickAddFocus(focusInput);
+    const offFocus = window.todoApi.onQuickAddFocus((payload) => {
+      applyFocus(Array.isArray(payload?.tags) ? payload.tags : []);
+    });
     return () => {
       offFocus();
     };
@@ -63,17 +72,20 @@ export default function AddTodoWindow(): React.ReactElement {
     if (!value) return;
 
     const dueDays = normalizeDueDays(dueDaysDraft);
-    await window.todoApi.addTodo({
-      title: value,
-      rating,
-      tags,
-      ...(dueDays !== undefined ? { dueDays } : {})
+    // 锁覆盖整个请求，失败时不清空草稿。
+    await submission.submit(async () => {
+      await window.todoApi.addTodo({
+        title: value,
+        rating,
+        tags,
+        ...(dueDays !== undefined ? { dueDays } : {})
+      });
+      setTitle("");
+      setRating(TODO_RATING_DEFAULT);
+      setTags([]);
+      setDueDaysDraft("");
+      await window.todoApi.closeCurrentWindow();
     });
-    setTitle("");
-    setRating(TODO_RATING_DEFAULT);
-    setTags([]);
-    setDueDaysDraft("");
-    await window.todoApi.closeCurrentWindow();
   };
 
   const ratingOptions = Array.from(
@@ -144,10 +156,11 @@ export default function AddTodoWindow(): React.ReactElement {
           ref={inputRef}
           rows={1}
           value={title}
+          disabled={submission.saving}
           onChange={(event) => setTitle(event.target.value)}
           onKeyDown={(event) => {
             // Enter 提交；换行只靠自动折行，避免标题里塞进硬回车
-            if (event.key === "Enter" && !event.shiftKey) {
+            if (shouldSubmitOnEnter(event.nativeEvent)) {
               event.preventDefault();
               event.currentTarget.form?.requestSubmit();
             }
@@ -155,8 +168,9 @@ export default function AddTodoWindow(): React.ReactElement {
           placeholder="输入待办标题"
           aria-label="新的待办事项"
         />
+        {submission.error ? <p role="alert">{submission.error}</p> : null}
         <div className="quick-add-actions no-drag">
-          <button type="submit" className="quick-add-confirm" disabled={!title.trim()}>
+          <button type="submit" className="quick-add-confirm" disabled={submission.saving || !title.trim()}>
             确认添加
           </button>
         </div>

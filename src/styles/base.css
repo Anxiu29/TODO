@@ -366,6 +366,29 @@ h2 {
   color: white;
 }
 
+.icon-button.has-update {
+  position: relative;
+}
+
+.update-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #f97316;
+  box-shadow: 0 0 0 2px var(--surface-solid);
+  pointer-events: none;
+}
+
+.widget-card .update-dot {
+  top: calc(4px * var(--widget-scale, 1));
+  right: calc(4px * var(--widget-scale, 1));
+  width: calc(7px * var(--widget-scale, 1));
+  height: calc(7px * var(--widget-scale, 1));
+}
+
 .button-icon {
   width: 18px;
   height: 18px;

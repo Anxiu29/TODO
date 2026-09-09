@@ -80,6 +80,8 @@ const api = {
   /** 打开快捷添加；可传入初始标签（如当前筛选标签） */
   openAddTodo: (options?: { tags?: string[] }): Promise<void> =>
     ipcRenderer.invoke("windows:openAddTodo", options),
+  /** 添加窗挂载时拉取当前预填标签，避免 push 赶在监听器之前 */
+  getPendingAddTodoTags: (): Promise<string[]> => ipcRenderer.invoke("windows:getPendingAddTodoTags"),
   openCalendar: (): Promise<void> => ipcRenderer.invoke("windows:openCalendar"),
   openSettings: (): Promise<void> => ipcRenderer.invoke("windows:openSettings"),
   /** 打开独立编辑窗；不占用挂件内部空间 */

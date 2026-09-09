@@ -10,8 +10,8 @@
 
 .calendar-layout {
   display: grid;
-  /* 右侧完成列表需要够宽，否则中等长度标题也会和「恢复」挤成两行 */
-  grid-template-columns: minmax(0, 1fr) minmax(240px, 280px);
+  /* 右侧完成列表要放下用时、时刻、标签，略宽于月历格 */
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
   gap: 14px;
   flex: 1;
   min-height: 0;
@@ -322,6 +322,96 @@
   color: #0369a1;
 }
 
+.day-detail .detail-item-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.day-detail .detail-item-days-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.day-detail .detail-item-duration {
+  border-radius: 999px;
+  background: #dcfce7;
+  color: #166534;
+  font-size: 11px;
+  font-weight: 650;
+  padding: 2px 8px;
+}
+
+.day-detail .detail-item-duration.overdue {
+  background: #ffe4e6;
+  color: #be123c;
+}
+
+.day-detail .detail-item-due,
+.day-detail .detail-item-rating {
+  color: #64748b;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.day-detail .detail-item-times {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.day-detail .detail-wait-history {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.day-detail .detail-wait-title {
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+
+.day-detail .detail-wait-history ul {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.day-detail .detail-wait-history li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.day-detail .detail-wait-span {
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.day-detail .detail-wait-reason {
+  min-width: 0;
+  color: #334155;
+  overflow-wrap: anywhere;
+}
+
 /* 日历详情里的子任务：只读勾选态，不提供编辑入口 */
 .day-detail .detail-subtasks {
   margin: 0;
@@ -478,6 +568,35 @@
 :root[data-theme="dark"] .day-detail .detail-reopen-button {
   background: #0c4a6e;
   color: #7dd3fc;
+}
+
+:root[data-theme="dark"] .day-detail .detail-item-duration {
+  background: #14532d;
+  color: #86efac;
+}
+
+:root[data-theme="dark"] .day-detail .detail-item-duration.overdue {
+  background: #881337;
+  color: #fda4af;
+}
+
+:root[data-theme="dark"] .day-detail .detail-item-due,
+:root[data-theme="dark"] .day-detail .detail-item-rating,
+:root[data-theme="dark"] .day-detail .detail-item-times,
+:root[data-theme="dark"] .day-detail .detail-wait-history li {
+  color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .day-detail .detail-wait-history {
+  border-top-color: #334155;
+}
+
+:root[data-theme="dark"] .day-detail .detail-wait-title {
+  color: var(--text-muted);
+}
+
+:root[data-theme="dark"] .day-detail .detail-wait-reason {
+  color: #cbd5e1;
 }
 
 :root[data-theme="dark"] .day-detail .detail-subtask {

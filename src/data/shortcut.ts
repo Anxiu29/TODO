@@ -32,6 +32,7 @@ export const formatShortcut = (
 ): string =>
   (shortcut ?? fallback)
     .replaceAll("CommandOrControl", "Ctrl")
+    .replaceAll("Super", "Win")
     .replaceAll("+", " + ");
 
 /**
@@ -50,6 +51,8 @@ export const normalizeShortcut = (input: string): string => {
     if (["ctrl", "control", "cmdorctrl", "commandorcontrol"].includes(lower)) return "CommandOrControl";
     if (["cmd", "command"].includes(lower)) return "Command";
     if (lower === "option") return "Alt";
+    // Windows 键统一使用 Electron 的 Super，不能与 Ctrl 混淆。
+    if (["meta", "win", "super"].includes(lower)) return "Super";
     if (lower === "escape") return "Esc";
     if (lower === "spacebar") return "Space";
     return part.length === 1 ? part.toUpperCase() : part[0].toUpperCase() + part.slice(1);
@@ -82,8 +85,11 @@ export type ShortcutKeyEvent = {
 
 /** 组合 Ctrl/Alt/Shift/Meta 与主键，生成如 CommandOrControl+Alt+T */
 export const eventToShortcut = (event: ShortcutKeyEvent): string => {
+  // 修饰键按下只是录制过程，不立即发起全局快捷键重注册。
+  if (["Control", "Shift", "Alt", "Meta"].includes(event.key)) return "";
   const parts: string[] = [];
-  if (event.ctrlKey || event.metaKey) parts.push("CommandOrControl");
+  if (event.ctrlKey) parts.push("CommandOrControl");
+  if (event.metaKey) parts.push("Super");
   if (event.altKey) parts.push("Alt");
   if (event.shiftKey) parts.push("Shift");
 

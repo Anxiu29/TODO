@@ -26,8 +26,12 @@ export const createDailyRefreshWatch = (onDateChanged: () => void): DailyRefresh
     if (todayKey() === observedDateKey) {
       return;
     }
-    onDateChanged();
-    observedDateKey = todayKey();
+    try {
+      onDateChanged();
+      observedDateKey = todayKey();
+    } catch {
+      // 保存层已提示失败；保留旧日期，让下次巡检重试且不抛出后台异常。
+    }
   };
 
   const armMidnightTimer = (): void => {
@@ -65,6 +69,12 @@ export const createDailyRefreshWatch = (onDateChanged: () => void): DailyRefresh
       pollTimer = undefined;
       clearTimeout(midnightTimer);
       midnightTimer = undefined;
+      // 停止后也解绑电源事件，否则解锁仍可能重新启动午夜计时器。
+      if (wakeBound) {
+        powerMonitor.removeListener("resume", onWake);
+        powerMonitor.removeListener("unlock-screen", onWake);
+        wakeBound = false;
+      }
     }
   };
 };

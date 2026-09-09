@@ -30,6 +30,14 @@ describe("formatShortcut", () => {
 });
 
 describe("eventToShortcut", () => {
+  // Win+R 必须保留为 Super+R，不能错误注册成 Ctrl+R。
+  it("keeps the Windows modifier separate from Control", () => {
+    const event = { key: "r", code: "KeyR", ctrlKey: false, metaKey: true, altKey: false, shiftKey: false };
+    expect(eventToShortcut(event)).toBe("Super+R");
+    expect(eventToShortcut({ ...event, ctrlKey: true })).toBe("CommandOrControl+Super+R");
+    expect(formatShortcut("Super+R")).toBe("Win + R");
+    expect(normalizeShortcut("win+r")).toBe("Super+R");
+  });
   it("ignores modifier-only keydowns", () => {
     expect(
       eventToShortcut({
@@ -40,7 +48,7 @@ describe("eventToShortcut", () => {
         altKey: false,
         shiftKey: false
       })
-    ).toBe("CommandOrControl");
+    ).toBe("");
   });
 
   it("combines modifiers with the main key", () => {

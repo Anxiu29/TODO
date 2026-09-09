@@ -17,6 +17,7 @@ import { TodoTagChips } from "./TodoTags";
 import { DEFAULT_QUICK_ADD_SHORTCUT, DEFAULT_SHOW_WIDGET_SHORTCUT, formatShortcut } from "./data/shortcut";
 import { formatDate, formatWaitingDays } from "./todoFormat";
 import type { AppSettings, Todo, TodoSnapshot } from "./types/todo";
+import type { UpdateStatus } from "./types/update";
 import { useWidgetContentScale } from "./useWidgetContentScale";
 import { WidgetResizeHandles } from "./useWidgetResize";
 
@@ -71,6 +72,8 @@ export default function App(): React.ReactElement {
   useWidgetContentScale(cardRef);
   /** 避免启动竞态：快照未到时不要因 availableTags 为空而清掉已恢复的筛选 */
   const tagFilterHydratedRef = useRef(false);
+  /** 有可用/已下载更新时在设置按钮上打点，替代开机自动弹设置窗 */
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: "idle" });
 
   /** 写入标签筛选并同步本地状态（重启/自启后由此恢复） */
   const persistTagFilter = useCallback((next: string | null): void => {
@@ -112,9 +115,11 @@ export default function App(): React.ReactElement {
       tagFilterHydratedRef.current = true;
     });
     void window.todoApi.getFloatOnPage().then(setIsFloatingOnPage);
+    void window.todoApi.getUpdateStatus().then(setUpdateStatus);
 
     const offTodos = window.todoApi.onTodosChanged(setSnapshot);
     const offDesktop = window.todoApi.onDesktopAttachResult(setDesktopAttached);
+    const offUpdate = window.todoApi.onUpdateStatusChanged(setUpdateStatus);
     const offSettings = window.todoApi.onSettingsChanged((next) => {
       setSettings(next);
       // 仅在已完成首次水合后跟随设置，避免覆盖本地尚未写入的点击
@@ -128,6 +133,7 @@ export default function App(): React.ReactElement {
       offDesktop();
       offSettings();
       offFloat();
+      offUpdate();
       if (deleteUndoTimerRef.current !== null) {
         window.clearTimeout(deleteUndoTimerRef.current);
       }
@@ -191,6 +197,7 @@ export default function App(): React.ReactElement {
     if (tagFilter) return `「${tagFilter}」 ${visibleTodos.length} 件`;
     return `还有 ${snapshot.activeTodos.length} 件待办`;
   }, [snapshot.activeTodos.length, tagFilter, visibleTodos.length]);
+  const hasUpdateNotice = updateStatus.state === "available" || updateStatus.state === "downloaded";
   const unpinLabel =
     settings?.displayMode === "desktop" || settings?.displayMode === "system"
       ? "取消置顶，回到桌面固定"
@@ -307,12 +314,16 @@ export default function App(): React.ReactElement {
 
         <div className="summary-row no-drag">
           <span>{remainingLabel}</span>
-          {/* 打开独立添加窗；当前有标签筛选时新建待办自动带上该标签 */}
+          {/* 打开独立添加窗；有筛选时带上该标签。未水合则不传，由主进程读 settings.tagFilter */}
           <button
             type="button"
-            onClick={() =>
-              window.todoApi.openAddTodo(tagFilter ? { tags: [tagFilter] } : undefined)
-            }
+            onClick={() => {
+              if (!tagFilterHydratedRef.current) {
+                void window.todoApi.openAddTodo();
+                return;
+              }
+              void window.todoApi.openAddTodo({ tags: tagFilter ? [tagFilter] : [] });
+            }}
           >
             添加
           </button>
@@ -460,14 +471,21 @@ export default function App(): React.ReactElement {
               <Icon name="calendar" />
             </button>
             <button
-              className="icon-button"
+              className={`icon-button${hasUpdateNotice ? " has-update" : ""}`}
               type="button"
-              title="设置"
+              title={
+                updateStatus.state === "available"
+                  ? `发现新版本 v${updateStatus.version}，打开设置查看`
+                  : updateStatus.state === "downloaded"
+                    ? `新版本 v${updateStatus.version} 已下载，打开设置安装`
+                    : "设置"
+              }
               aria-label="设置"
               onMouseDown={wakeWidget}
               onClick={openSettings}
             >
               <Icon name="settings" />
+              {hasUpdateNotice ? <span className="update-dot" aria-hidden /> : null}
             </button>
           </div>
           <span>{footerHint}</span>

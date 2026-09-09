@@ -16,6 +16,9 @@ import {
   normalizeTodoSubtasks,
   normalizeTodoTags,
   normalizeTodoWaitingFields,
+  parseAddTodoTagsQuery,
+  resolveAddTodoPrefillTags,
+  serializeAddTodoTagsQuery,
   normalizeWaitHistory,
   normalizeWidgetOpacity,
   normalizeWidgetTheme,
@@ -137,6 +140,20 @@ describe("todo tags and appearance normalize", () => {
     expect(normalizeTodoTags(["生活", "紧急", "工作"])).toEqual(["生活", "紧急"]);
     expect(normalizeTodoTags(["紧急"])).toEqual(["紧急"]);
     expect(normalizeTodoTags(["项目A", " 项目A ", "紧急"])).toEqual(["项目A", "紧急"]);
+  });
+
+  it("prefills add-todo tags from explicit options or persisted tagFilter", () => {
+    expect(resolveAddTodoPrefillTags({ tags: ["工作"] }, "生活")).toEqual(["工作"]);
+    expect(resolveAddTodoPrefillTags({ tags: [] }, "工作")).toEqual([]);
+    expect(resolveAddTodoPrefillTags(undefined, "工作")).toEqual(["工作"]);
+    expect(resolveAddTodoPrefillTags(undefined, null)).toEqual([]);
+  });
+
+  it("round-trips add-todo tags through the window query param", () => {
+    const encoded = serializeAddTodoTagsQuery([" 工作 ", "紧急"]);
+    expect(parseAddTodoTagsQuery(`?view=add&tags=${encodeURIComponent(encoded)}`)).toEqual(["工作", "紧急"]);
+    expect(parseAddTodoTagsQuery("?view=add")).toEqual([]);
+    expect(parseAddTodoTagsQuery("?tags=not-json")).toEqual([]);
   });
 
   it("normalizes subtasks and drops invalid entries", () => {

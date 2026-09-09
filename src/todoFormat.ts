@@ -3,6 +3,7 @@
  * 一律吃 snapshot.today，避免各窗口自己 new Date() 和日切不同步。
  */
 import { daysBetweenDateKeys, daysSinceCreatedOn } from "./data/todoStore";
+import { isDateKey } from "./types/todo";
 
 /** YYYY-MM-DD →「7月4日 星期六」；空串原样 */
 export const formatDate = (date: string): string => {
@@ -52,4 +53,27 @@ export const formatWaitSpan = (startedAt: string, endedAt: string): string => {
   const days = daysBetweenDateKeys(startedAt, endedAt);
   if (days === 0) return "当天";
   return `${days} 天`;
+};
+
+/**
+ * 完成用时：按创建日到完成日（YYYY-MM-DD）起算，不跟「今天」走。
+ * 日历回看历史完成记录时必须用完成当天，否则会越看越「用时更长」。
+ */
+export const formatCompletedDays = (createdAt: string, completedDate?: string): string => {
+  if (!completedDate) return "";
+  const dateKey = completedDate.slice(0, 10);
+  const days = daysSinceCreatedOn(createdAt, dateKey);
+  if (days === 0) return "当天完成";
+  return `用时 ${days} 天`;
+};
+
+/**
+ * 完成时刻展示：日期键只显示「M月D日」，避免被当成 UTC 午夜；
+ * ISO 则与添加时间同一套到分格式。
+ */
+export const formatCompletedAt = (completedAt: string): string => {
+  if (isDateKey(completedAt)) return formatWaitDate(completedAt);
+  const date = new Date(completedAt);
+  if (Number.isNaN(date.getTime())) return completedAt;
+  return formatCreatedAt(completedAt);
 };

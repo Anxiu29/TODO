@@ -56,7 +56,8 @@ const formatCorruptStamp = (date = new Date()): string => {
 export const backupUnreadableTodosFile = (filePath: string): string | null => {
   if (!existsSync(filePath)) return null;
   const backupPath = join(dirname(filePath), `${basename(filePath)}.corrupt-${formatCorruptStamp()}`);
-  const uniquePath = existsSync(backupPath) ? `${backupPath}-${process.pid}` : backupPath;
+  // 多次启动失败也不能覆盖先前的恢复副本。
+  const uniquePath = `${backupPath}-${randomUUID()}`;
   try {
     copyFileSync(filePath, uniquePath);
     return uniquePath;
@@ -148,9 +149,15 @@ const archiveAndClearWaiting = (todo: Todo, endedAt = todayKey()): void => {
  */
 export class TodoStore {
   private database: TodoDatabase;
+  /** 最近一次成功落盘的独立副本，任何保存失败都回滚到此状态。 */
+  private committed: TodoDatabase;
 
-  constructor(private readonly filePath = join(app.getPath("userData"), "todos.json")) {
+  constructor(
+    private readonly filePath = join(app.getPath("userData"), "todos.json"),
+    private readonly onSaveError?: (message: string) => void
+  ) {
     this.database = this.load();
+    this.committed = structuredClone(this.database);
     // 构造时立即日切，确保跨天后首次打开数据已更新
     this.refreshDaily();
   }
@@ -420,7 +427,8 @@ export class TodoStore {
   }
 
   getSettings(): AppSettings {
-    return this.database.settings;
+    // 不将可变引用暴露给调用方，防止绕过保存与回滚边界。
+    return structuredClone(this.database.settings);
   }
 
   setShortcut(shortcut: string): AppSettings {
@@ -474,13 +482,25 @@ export class TodoStore {
    * 缺失的 tags/subtasks/theme/opacity/tagFilter 会补默认值。
    */
   private load(): TodoDatabase {
+    let raw: string;
     try {
-      const raw = readFileSync(this.filePath, "utf8");
+      raw = readFileSync(this.filePath, "utf8");
+    } catch (error) {
+      // 只有文件确实不存在才是首次启动；占用、权限等错误不能当作空库。
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return createEmptyDatabase();
+      throw new Error(`无法读取待办数据，已停止启动以保护原文件：${this.filePath}`, { cause: error });
+    }
+    try {
       const parsed: unknown = JSON.parse(raw);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
         throw new Error("todos.json 不是对象");
       }
       const database = parsed as TodoDatabase;
+      // 结构错误同样不能静默丢弃，否则下一次保存会把现有记录清空。
+      if (!Array.isArray(database.todos) || database.todos.some((todo) =>
+        !todo || typeof todo.id !== "string" || typeof todo.title !== "string" ||
+        typeof todo.createdAt !== "string" || typeof todo.scheduledDate !== "string"
+      )) throw new Error("待办记录结构无效");
       const defaults = createEmptyDatabase();
       const { lastDeletedTodo: pendingRaw, ...parsedRest } = database;
       const pending =
@@ -500,15 +520,10 @@ export class TodoStore {
         todos: Array.isArray(database.todos) ? database.todos.map((todo) => normalizeTodoRecord(todo)) : [],
         ...(pending?.id && pending.title ? { lastDeletedTodo: pending } : {})
       };
-    } catch {
-      // 文件还在只是读不懂：先备份再回退空库；构造阶段日切不会写盘（lastRefreshDate=今天）
-      if (existsSync(this.filePath)) {
-        const backupPath = backupUnreadableTodosFile(this.filePath);
-        if (backupPath) {
-          console.warn(`todos.json 无法解析，已备份到 ${backupPath}`);
-        }
-      }
-      return createEmptyDatabase();
+    } catch (error) {
+      const backupPath = backupUnreadableTodosFile(this.filePath);
+      // 即使备份成功也不自动创建空库，待原数据恢复后再启动。
+      throw new Error(`待办数据无法解析，原文件未覆盖：${this.filePath}。${backupPath ? `备份：${backupPath}` : "备份未成功，请先保留原文件。"}`, { cause: error });
     }
   }
 
@@ -533,6 +548,16 @@ export class TodoStore {
 
   /** 将当前内存数据库原子写入 todos.json（2 空格缩进） */
   private writeDatabase(): void {
-    writeFileAtomicSync(this.filePath, JSON.stringify(this.database, null, 2));
+    try {
+      // 序列化与副本准备也包含在事务内；落盘成功后才更新提交点。
+      const next = structuredClone(this.database);
+      writeFileAtomicSync(this.filePath, JSON.stringify(next, null, 2));
+      this.committed = next;
+    } catch (error) {
+      this.database = structuredClone(this.committed);
+      const message = `保存失败，本次修改已撤回，原数据未覆盖。请检查磁盘空间和文件权限后重试。\n${this.filePath}`;
+      this.onSaveError?.(message);
+      throw new Error(message, { cause: error });
+    }
   }
 }

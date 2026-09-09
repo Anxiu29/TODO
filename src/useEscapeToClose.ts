@@ -6,6 +6,7 @@
  * 日历：ignoreEditable，改标题时 Escape 只取消编辑。
  */
 import { useEffect } from "react";
+import { isComposingKey } from "./data/formSubmission";
 
 type Options = {
   /** 焦点在 input/textarea/select 时不关窗 */
@@ -19,6 +20,8 @@ export const useEscapeToClose = (options: Options = {}): void => {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== "Escape") return;
+      // 输入法取消候选词仅交给输入法，不能关闭整个编辑窗口。
+      if (isComposingKey(event)) return;
       if (event.defaultPrevented) return;
       if (ignoreEditable) {
         const target = event.target;

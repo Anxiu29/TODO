@@ -113,8 +113,8 @@ describe("TodoStore persistence", () => {
     const filePath = join(dir, "todos.json");
     writeFileSync(filePath, "{ not json", "utf8");
 
-    const store = new TodoStore(filePath);
-    expect(store.getSnapshot().activeTodos).toEqual([]);
+    // 坏文件必须阻止启动，备份成功也不允许空库覆盖。
+    expect(() => new TodoStore(filePath)).toThrow("原文件未覆盖");
 
     const backups = readdirSync(dir).filter((name) => name.startsWith("todos.json.corrupt-"));
     expect(backups).toHaveLength(1);

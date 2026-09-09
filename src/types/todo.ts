@@ -112,6 +112,35 @@ export const normalizeTodoTags = (tags?: unknown): string[] => {
   return result.slice(0, TODO_TAGS_MAX);
 };
 
+/**
+ * 添加窗预填标签：渲染进程显式传入（含空数组=全部）优先；
+ * 未传时沿用 settings.tagFilter，避免重启后筛选尚未水合就点「添加」。
+ */
+export const resolveAddTodoPrefillTags = (
+  options: { tags?: string[] } | undefined,
+  tagFilter: string | null
+): string[] => {
+  if (options && Array.isArray(options.tags)) {
+    return normalizeTodoTags(options.tags);
+  }
+  return tagFilter ? normalizeTodoTags([tagFilter]) : [];
+};
+
+/** 写入添加窗 URL `tags=`，供首屏在 IPC 到达前就能显示预填标签 */
+export const serializeAddTodoTagsQuery = (tags: string[]): string =>
+  JSON.stringify(normalizeTodoTags(tags));
+
+/** 从添加窗 URL query 解析预填标签；非法 JSON 当空 */
+export const parseAddTodoTagsQuery = (search: string): string[] => {
+  const raw = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search).get("tags");
+  if (!raw) return [];
+  try {
+    return normalizeTodoTags(JSON.parse(raw) as unknown);
+  } catch {
+    return [];
+  }
+};
+
 /** 是否为合法 YYYY-MM-DD 日期键 */
 export const isDateKey = (value: unknown): value is string =>
   typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
